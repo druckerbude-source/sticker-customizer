@@ -66,8 +66,13 @@ export default defineConfig({
   ],
   build: {
     assetsInlineLimit: 0,
+
+    // ✅ Fix: esbuild CSS minify stolpert über Polaris Custom Media (… and print)
+    // -> Warnung verschwindet, Build bleibt stabil
+    cssMinify: false,
   },
   optimizeDeps: {
     include: ["@shopify/app-bridge-react", "@shopify/polaris"],
   },
 });
+
