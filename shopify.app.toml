@@ -10,7 +10,7 @@ automatically_update_urls_on_dev = false
 [webhooks]
 # Nimm die Version, die dein Projekt tatsächlich nutzt.
 # Wenn du unsicher bist: schau in package.json / shopify config oder lass es wie unten.
-api_version = "2024-10"
+api_version = "2026-01"
 
   [[webhooks.subscriptions]]
   topics = [ "app/scopes_update" ]
