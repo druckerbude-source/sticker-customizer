@@ -15,7 +15,11 @@ RUN npx prisma generate
 
 RUN npm run build
 
+# ✅ Startscript rein (führt migrate deploy aus und startet dann die App)
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 EXPOSE 3000
 
-# Beim Start: setup (migrate deploy) + start
-CMD ["npm", "run", "docker-start"]
+# ✅ Beim Start: prisma generate + prisma migrate deploy + npm run start
+CMD ["/app/start.sh"]
