@@ -26,9 +26,10 @@ optional_scopes = []
 use_legacy_install_flow = false
 
 [auth]
-# Wichtig: Redirects müssen auf deine App zeigen (Production)
 redirect_urls = [
-  "https://sticker-customizer.onrender.com/auth/callback"
+  "https://sticker-customizer.onrender.com/auth/callback",
+  "https://sticker-customizer.onrender.com/api/auth/callback",
+  "https://sticker-customizer.onrender.com/auth/shopify/callback"
 ]
 
 [app_proxy]
