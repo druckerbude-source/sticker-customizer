@@ -1,15 +1,16 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
-
 client_id = "f8fa97e6583ae16180a0a10984345291"
 name = "sticker-costumizer"
-application_url = "https://pray-bet-stands-mpegs.trycloudflare.com"
+application_url = "https://sticker-customizer.onrender.com"
 embedded = true
 
 [build]
-automatically_update_urls_on_dev = true
+# Für Production bitte NICHT automatisch URLs überschreiben lassen
+automatically_update_urls_on_dev = false
 
 [webhooks]
-api_version = "1.0.0"
+# Nimm die Version, die dein Projekt tatsächlich nutzt.
+# Wenn du unsicher bist: schau in package.json / shopify config oder lass es wie unten.
+api_version = "2024-10"
 
   [[webhooks.subscriptions]]
   topics = [ "app/scopes_update" ]
@@ -20,15 +21,19 @@ api_version = "1.0.0"
   uri = "/webhooks/app/uninstalled"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_files,write_files,write_products"
-optional_scopes = [ ]
+optional_scopes = []
 use_legacy_install_flow = false
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+# Wichtig: Redirects müssen auf deine App zeigen (Production)
+redirect_urls = [
+  "https://sticker-customizer.onrender.com/auth/callback"
+]
 
 [app_proxy]
-url = "https://pray-bet-stands-mpegs.trycloudflare.com/proxy/sticker-configurator"
+# App Proxy: Shopify ruft DEINE App-URL auf (nicht Cloudflare)
+# Der Pfad muss zu deiner Proxy-Route passen.
+url = "https://sticker-customizer.onrender.com/proxy/sticker-configurator"
 subpath = "sticker-configurator"
 prefix = "apps"
