@@ -214,3 +214,48 @@
     grid-template-rows: 1fr 45dvh !important;
   }
 }
+/* =========================================================
+   Controls: Desktop 2-Spalten statt alles untereinander
+   - Gilt nur im unteren Sheet (Controls = 1. Kind)
+   - Mobile bleibt 1-spaltig
+   ========================================================= */
+
+/* Controls-Container (unten) -> Grid */
+.sticker-embed-react-root > * > *:nth-child(1) {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px; /* row-gap / col-gap */
+  align-content: start;
+}
+
+/* Jeder Field-Block (direkte Kinder) darf in einer Spalte liegen */
+.sticker-embed-react-root > * > *:nth-child(1) > * {
+  min-width: 0;
+}
+
+/* Typische "große" Elemente immer volle Breite (2 Spalten) */
+.sticker-embed-react-root > * > *:nth-child(1) button,
+.sticker-embed-react-root > * > *:nth-child(1) .actions,
+.sticker-embed-react-root > * > *:nth-child(1) .cta-bar,
+.sticker-embed-react-root > * > *:nth-child(1) .sc-cta {
+  grid-column: 1 / -1;
+}
+
+/* Falls du einen Upload-Block hast (Dropzone o.ä.), auch full width */
+.sticker-embed-react-root > * > *:nth-child(1) input[type="file"] {
+  grid-column: 1 / -1;
+}
+
+/* Wenn ein Element sehr breit ist (z.B. ein Select/Control, der allein stehen soll),
+   kannst du ihm optional diese Klasse geben: .sc-span-2 */
+.sticker-embed-react-root > * > *:nth-child(1) .sc-span-2 {
+  grid-column: 1 / -1;
+}
+
+/* Mobile: wieder 1 Spalte */
+@media (max-width: 900px) {
+  .sticker-embed-react-root > * > *:nth-child(1) {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+}
