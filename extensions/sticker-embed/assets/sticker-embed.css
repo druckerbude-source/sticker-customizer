@@ -17,7 +17,6 @@
   display: none;
   z-index: 9999;
 
-  /* Fullscreen-Layout: Dialog soll die gesamte Fläche nutzen */
   align-items: stretch;
   justify-content: stretch;
 }
@@ -39,14 +38,12 @@
   position: relative;
   background: #050509;
 
-  /* Fullscreen */
   width: 100vw;
   height: 100dvh;
   max-width: none;
   max-height: none;
   margin: 0;
 
-  /* Optik */
   border-radius: 0;
   box-shadow: none;
 
@@ -54,7 +51,7 @@
   display: flex;
   flex-direction: column;
 
-  /* ✅ Container Queries aktivieren (hilft im Shopify Theme Editor) */
+  /* Container Queries optional */
   container-type: inline-size;
   container-name: scdialog;
 }
@@ -74,16 +71,16 @@
 
 /* React Root muss die Fläche annehmen */
 .sticker-embed-react-root {
-  flex: 1;
-  min-height: 0; /* wichtig: damit interne Bereiche scrollen können */
+  flex: 1 1 auto;
+  min-height: 0;
   min-width: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden; /* wir scrollen gezielt im unteren Sheet */
+  overflow: hidden; /* gezielt unten scrollen */
 }
 
 /* =========================================================
-   FULLSCREEN: Inhalt wirklich ausfüllen (kein Top-Center)
+   FULLSCREEN: Inhalt wirklich ausfüllen
    ========================================================= */
 .sticker-embed-modal--open {
   display: flex !important;
@@ -91,49 +88,55 @@
   justify-content: stretch !important;
 }
 
-/* Dialog füllt den Modal-Container komplett */
 .sticker-embed-dialog {
   flex: 1 1 auto !important;
   width: 100% !important;
   height: 100% !important;
 }
 
-/* Häufig: Wrapper innerhalb React-Root limitiert Breite/Höhe */
+/* ❗WICHTIG: die alten "height:100%" Zwangsregeln waren der Killer.
+   Wir lassen Wrapper voll breit, aber NICHT zwanghaft 100% hoch. */
 .sticker-embed-react-root > * {
   width: 100% !important;
-  height: 100% !important;
   max-width: none !important;
-  max-height: none !important;
   margin: 0 !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+
+  /* NICHT height:100% erzwingen */
+  height: auto !important;
+  max-height: none !important;
 }
 
-/* Falls es noch einen zweiten Wrapper gibt */
+/* zweiter Wrapper falls vorhanden */
 .sticker-embed-react-root > * > * {
   max-width: none !important;
   margin: 0 !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
 }
 
 /* =========================================================
-   ✅ LAYOUT (Desktop + Mobile):
-   OBEN Preview/Bild, UNTEN Konfig/Optionen (Sheet)
+   ✅ GLOBAL LAYOUT: Preview oben, Optionen unten
    ---------------------------------------------------------
-   Annahme:
-   - 1. Kind in React Root = Optionen/Sidebar
-   - 2. Kind in React Root = Preview/Bild
+   Wir setzen das Layout auf den ersten Layout-Wrapper unter React-Root.
+   Dort sind typischerweise Sidebar + Preview direkte Kinder.
    ========================================================= */
 
-/* Wir setzen das Layout direkt auf .sticker-embed-react-root.
-   Damit ist es unabhängig davon, ob Shopify "Mobile Preview" wirklich Media Queries triggert. */
-.sticker-embed-react-root {
+/* Der echte Layout-Wrapper */
+.sticker-embed-react-root > * {
   display: grid !important;
   grid-template-columns: 1fr !important;
-  grid-template-rows: 1fr 42dvh !important; /* unten Sheet, oben Preview flexibel */
+  grid-template-rows: 1fr 42dvh !important; /* unten Sheet */
+  height: 100% !important;                 /* jetzt ist es safe: Wrapper kontrolliert */
+  overflow: hidden !important;
 }
 
-/* Preview (2. Kind) -> oben */
-.sticker-embed-react-root > *:nth-child(2) {
+/* Preview ist bei dir sehr wahrscheinlich das 2. Kind */
+.sticker-embed-react-root > * > *:nth-child(2) {
   grid-column: 1 / -1;
   grid-row: 1;
+
   min-height: 0;
   overflow: hidden;
 
@@ -144,13 +147,13 @@
   padding: 16px;
 }
 
-/* Optionen (1. Kind) -> unten als Sheet */
-.sticker-embed-react-root > *:nth-child(1) {
+/* Optionen/Controls = 1. Kind -> unten */
+.sticker-embed-react-root > * > *:nth-child(1) {
   grid-column: 1 / -1;
   grid-row: 2;
-  min-height: 0;
 
-  overflow: auto; /* nur hier scrollen */
+  min-height: 0;
+  overflow: auto;
   -webkit-overflow-scrolling: touch;
 
   border-top: 1px solid rgba(255,255,255,0.08);
@@ -165,15 +168,15 @@
 }
 
 /* Preview-Inhalt nicht sprengen */
-.sticker-embed-react-root > *:nth-child(2) > * {
+.sticker-embed-react-root > * > *:nth-child(2) > * {
   max-width: 100%;
   max-height: 100%;
 }
 
-/* Optional: CTA sticky unten im Sheet (nur wenn Klassen existieren) */
-.sticker-embed-react-root > *:nth-child(1) .sc-cta,
-.sticker-embed-react-root > *:nth-child(1) .cta-bar,
-.sticker-embed-react-root > *:nth-child(1) .actions {
+/* Optional: CTA sticky im Sheet (falls Klassen existieren) */
+.sticker-embed-react-root > * > *:nth-child(1) .sc-cta,
+.sticker-embed-react-root > * > *:nth-child(1) .cta-bar,
+.sticker-embed-react-root > * > *:nth-child(1) .actions {
   position: sticky;
   bottom: 0;
   z-index: 6;
@@ -186,30 +189,28 @@
   );
 }
 
-/* Buttons wirken auf Mobile & Desktop „appiger“ */
+/* Buttons full width */
 .sticker-embed-react-root button {
   width: 100%;
 }
 
 /* =========================================================
-   Feintuning: Große Screens -> Sheet etwas kleiner (mehr Platz fürs Preview)
+   Feintuning: Große Screens -> Sheet kleiner
    ========================================================= */
 @media (min-width: 1200px) {
-  .sticker-embed-react-root {
+  .sticker-embed-react-root > * {
     grid-template-rows: 1fr 36dvh !important;
   }
 }
 
-/* Sehr niedrige Höhe -> Sheet etwas höher, damit es nutzbar bleibt */
 @media (max-height: 720px) {
-  .sticker-embed-react-root {
+  .sticker-embed-react-root > * {
     grid-template-rows: 1fr 48dvh !important;
   }
 }
 
-/* Optional: Wenn du im Theme Editor einen schmalen Dialog hast, kann das Sheet etwas größer sein */
 @container scdialog (max-width: 900px) {
-  .sticker-embed-react-root {
+  .sticker-embed-react-root > * {
     grid-template-rows: 1fr 45dvh !important;
   }
 }
