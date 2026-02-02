@@ -214,3 +214,43 @@
     grid-template-rows: 1fr 45dvh !important;
   }
 }
+.sc-field { display: grid; gap: 8px; }
+.sc-label { font-size: 13px; opacity: .85; }
+
+.sc-tileGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sc-tileGrid--sizes{
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sc-tile{
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color: #fff;
+  border-radius: 12px;
+  padding: 10px 10px;
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+  align-content: center;
+  justify-items: center;
+  min-height: 58px;
+}
+
+.sc-tile.is-active{
+  border-color: rgba(255,255,255,.28);
+  background: rgba(255,255,255,.08);
+}
+
+.sc-tileIcon{ font-size: 20px; line-height: 1; }
+.sc-tileLabel{ font-size: 13px; text-align: center; }
+
+/* Mobile: weniger Spalten */
+@media (max-width: 720px){
+  .sc-tileGrid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sc-tileGrid--sizes{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
