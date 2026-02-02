@@ -50,6 +50,9 @@ const PRINT_LENGTH_CM = 130;
 const MIN_EDGE_MM = 40;
 const MIN_EDGE_CM = MIN_EDGE_MM / 10;
 
+// ✅ Freiform: Dropdown-Presets (lange Kante in cm) – iOS-sicher, Proportionen bleiben erhalten
+const FREEFORM_PRESET_LONG_SIDES_CM = [4, 5, 6, 7, 8, 9, 10, 12, 15, 20];
+
 // Freeform Preview-Engine
 const PX_PER_CM = 100;
 const EXPORT_DPI = 300;
@@ -1157,9 +1160,63 @@ useEffect(() => {
   const [billingWidthCm, setBillingWidthCm] = useState(clampNum(defaultWidthCm, 1, 300));
   const [billingHeightCm, setBillingHeightCm] = useState(clampNum(defaultHeightCm, 1, 300));
 
+  // ✅ Freiform: Dropdown-Preset (lange Kante in cm) – iOS zuverlässig
+  const [freeformPresetLongCm, setFreeformPresetLongCm] = useState(() => {
+    const w0 = clampNum(defaultWidthCm, MIN_EDGE_CM, 20);
+    const h0 = clampNum(defaultHeightCm, MIN_EDGE_CM, 20);
+    const long0 = Math.max(w0, h0);
+    let best = FREEFORM_PRESET_LONG_SIDES_CM[0];
+    let bestD = Math.abs(long0 - best);
+    for (const v of FREEFORM_PRESET_LONG_SIDES_CM) {
+      const d = Math.abs(long0 - v);
+      if (d < bestD) { best = v; bestD = d; }
+    }
+    return String(best);
+  });
+
   // ✅ Freiform: Original-Sticker-Aspect (aus Maske) – wird genutzt um Billing proportional zu halten
   const [freeformCutAspect, setFreeformCutAspect] = useState(1);
   const lastFreeformEditRef = useRef("w"); // "w" | "h"
+
+  // ✅ Freiform: Preset-Optionen (Label zeigt resultierende WxH, Proportion bleibt erhalten)
+  const freeformPresetOptions = useMemo(() => {
+    const ar = Number(freeformCutAspect) || Number(imgAspect) || 1;
+    const safeAr = ar > 0 ? ar : 1;
+
+    return FREEFORM_PRESET_LONG_SIDES_CM.map((L) => {
+      const longSide = clampNum(L, MIN_EDGE_CM, 20);
+
+      let w = longSide;
+      let h = longSide;
+      if (safeAr >= 1) {
+        w = longSide;
+        h = longSide / safeAr;
+      } else {
+        h = longSide;
+        w = longSide * safeAr;
+      }
+
+      w = clampNum(w, MIN_EDGE_CM, 20);
+      h = clampNum(h, MIN_EDGE_CM, 20);
+
+      const label = `${Number(w).toFixed(2)} × ${Number(h).toFixed(2)} cm`;
+      return { value: String(longSide), w, h, label };
+    });
+  }, [freeformCutAspect, imgAspect]);
+
+  // ✅ Freiform: wenn Preset oder Aspect wechselt -> Billing-Maße nachziehen
+  useEffect(() => {
+    if (shape !== "freeform") return;
+    const opt =
+      freeformPresetOptions.find((o) => String(o.value) === String(freeformPresetLongCm)) || freeformPresetOptions[0];
+    if (!opt) return;
+
+    const nextW = Number(Number(opt.w).toFixed(2));
+    const nextH = Number(Number(opt.h).toFixed(2));
+
+    setBillingWidthCm((prev) => (approxEq(prev, nextW, 0.01) ? prev : nextW));
+    setBillingHeightCm((prev) => (approxEq(prev, nextH, 0.01) ? prev : nextH));
+  }, [shape, freeformPresetLongCm, freeformPresetOptions]);
 
   const [bgMode, setBgMode] = useState("color"); // "color" | "white" | "transparent"
 
@@ -2726,37 +2783,6 @@ try {
   const previewBg = useMemo(() => "#0b0f16", []);
 
   // ==============================
-  // iOS-Safe Stepper (Freeform Größe)
-  // - iOS/Safari blockiert native Number-Stepper in overflow:auto + -webkit-overflow-scrolling
-  // - daher: eigene +/- Buttons, Input readOnly
-  // ==============================
-  const FREEFORM_STEP_CM = 0.5;
-
-  function setFreeformBillingSize(edited, nextValueCm) {
-    setAddedMsg("");
-    lastFreeformEditRef.current = edited;
-
-    const ar = freeformCutAspect || imgAspect || 1;
-
-    const wNow = Number.isFinite(billingWidthCm) ? billingWidthCm : MIN_EDGE_CM;
-    const hNow = Number.isFinite(billingHeightCm) ? billingHeightCm : MIN_EDGE_CM;
-
-    const next = clampNum(nextValueCm, MIN_EDGE_CM, 20);
-
-    const r = enforceAspectWithMinEdge({
-      wCm: edited === "w" ? next : wNow,
-      hCm: edited === "h" ? next : hNow,
-      aspectWdivH: ar,
-      edited,
-      minEdgeCm: MIN_EDGE_CM,
-      maxEdgeCm: 20,
-    });
-
-    setBillingWidthCm(Number(r.wCm.toFixed(2)));
-    setBillingHeightCm(Number(r.hCm.toFixed(2)));
-  }
-
-  // ==============================
   // Render
   // ==============================
   return (
@@ -2795,80 +2821,27 @@ try {
           {/* ✅ Größe: feste Formen = Dropdown, Freiform = freie Eingabe */}
           {shape === "freeform" ? (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-  <label>
-    Breite (cm)
-    <div className="sc-stepper">
-      <button
-        type="button"
-        className="sc-stepperBtn"
-        aria-label="Breite (cm) verringern"
-        onClick={() => setFreeformBillingSize("w", (Number.isFinite(billingWidthCm) ? billingWidthCm : MIN_EDGE_CM) - FREEFORM_STEP_CM)}
-      >
-        −
-      </button>
+              <label>
+                Größe (Proportion bleibt erhalten)
+                <select
+                  value={String(freeformPresetLongCm)}
+                  onChange={(e) => {
+                    setAddedMsg("");
+                    setFreeformPresetLongCm(String(e.target.value));
+                  }}
+                  style={{ width: "100%", marginTop: 4, ...styles.select }}
+                >
+                  {freeformPresetOptions.map((o) => (
+                    <option key={`ffp-${o.value}`} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-      <input
-        inputMode="decimal"
-        type="number"
-        readOnly
-        step="0.5"
-        min={String(MIN_EDGE_CM)}
-        max="20"
-        value={Number.isFinite(billingWidthCm) ? String(Number(billingWidthCm).toFixed(2)) : ""}
-        className="sc-stepperInput"
-        style={{ width: "100%", ...styles.input }}
-      />
-
-      <button
-        type="button"
-        className="sc-stepperBtn"
-        aria-label="Breite (cm) erhöhen"
-        onClick={() => setFreeformBillingSize("w", (Number.isFinite(billingWidthCm) ? billingWidthCm : MIN_EDGE_CM) + FREEFORM_STEP_CM)}
-      >
-        +
-      </button>
-    </div>
-  </label>
-
-  <label>
-    Höhe (cm)
-    <div className="sc-stepper">
-      <button
-        type="button"
-        className="sc-stepperBtn"
-        aria-label="Höhe (cm) verringern"
-        onClick={() => setFreeformBillingSize("h", (Number.isFinite(billingHeightCm) ? billingHeightCm : MIN_EDGE_CM) - FREEFORM_STEP_CM)}
-      >
-        −
-      </button>
-
-      <input
-        inputMode="decimal"
-        type="number"
-        readOnly
-        step="0.5"
-        min={String(MIN_EDGE_CM)}
-        max="20"
-        value={Number.isFinite(billingHeightCm) ? String(Number(billingHeightCm).toFixed(2)) : ""}
-        className="sc-stepperInput"
-        style={{ width: "100%", ...styles.input }}
-      />
-
-      <button
-        type="button"
-        className="sc-stepperBtn"
-        aria-label="Höhe (cm) erhöhen"
-        onClick={() => setFreeformBillingSize("h", (Number.isFinite(billingHeightCm) ? billingHeightCm : MIN_EDGE_CM) + FREEFORM_STEP_CM)}
-      >
-        +
-      </button>
-    </div>
-  </label>
-</div>
-
-
-              
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                Billing-Box: <b>{fmtCm(billingWidthCm)} × {fmtCm(billingHeightCm)} cm</b>
+              </div>
             </>
           ) : (
             <label>
