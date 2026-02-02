@@ -216,51 +216,8 @@
 }
 
 /* =========================================================
-   iOS Fix: Freeform Größen-Stepper
-   - native Number-Stepper sind in iOS Safari innerhalb von overflow:auto
-     + -webkit-overflow-scrolling:touch oft nicht klickbar
-   - Lösung: eigene +/- Buttons + readOnly Input
+   ✅ Patch: Stepper / number-input iOS Fix entfernt
+   ---------------------------------------------------------
+   Grund: Freiform-Größe wird als Dropdown umgesetzt.
+   Es gibt keine number-inputs/Stepper mehr, daher nur Ballast.
    ========================================================= */
-
-/* native Spinbuttons entfernen (wir nutzen eigene Buttons) */
-.sticker-embed-react-root input[type="number"]::-webkit-outer-spin-button,
-.sticker-embed-react-root input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.sticker-embed-react-root input[type="number"] {
-  -moz-appearance: textfield;
-}
-
-.sc-stepper {
-  display: grid;
-  grid-template-columns: 44px 1fr 44px;
-  gap: 8px;
-  align-items: center;
-  margin-top: 4px;
-}
-
-.sc-stepperBtn {
-  width: 44px !important; /* überschreibt "Buttons full width" */
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
-  color: #fff;
-  font-size: 22px;
-  line-height: 1;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.sc-stepperBtn:active {
-  background: rgba(255,255,255,0.10);
-}
-
-.sc-stepperInput {
-  text-align: center;
-}
