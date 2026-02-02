@@ -50,8 +50,8 @@ const PRINT_LENGTH_CM = 130;
 const MIN_EDGE_MM = 40;
 const MIN_EDGE_CM = MIN_EDGE_MM / 10;
 
-// ✅ Freiform: Dropdown-Presets (lange Kante in cm) – iOS-sicher, Proportionen bleiben erhalten
-const FREEFORM_PRESET_LONG_SIDES_CM = [4, 5, 6, 7, 8, 9, 10, 12, 15, 20];
+// ✅ Freiform Größen-Presets (lange Kante in cm) – iOS-sicher via Dropdown
+const FREEFORM_LONGSIDE_PRESETS_CM = [4, 5, 6, 7, 8, 9, 10, 12, 15, 20];
 
 // Freeform Preview-Engine
 const PX_PER_CM = 100;
@@ -1160,63 +1160,12 @@ useEffect(() => {
   const [billingWidthCm, setBillingWidthCm] = useState(clampNum(defaultWidthCm, 1, 300));
   const [billingHeightCm, setBillingHeightCm] = useState(clampNum(defaultHeightCm, 1, 300));
 
-  // ✅ Freiform: Dropdown-Preset (lange Kante in cm) – iOS zuverlässig
-  const [freeformPresetLongCm, setFreeformPresetLongCm] = useState(() => {
-    const w0 = clampNum(defaultWidthCm, MIN_EDGE_CM, 20);
-    const h0 = clampNum(defaultHeightCm, MIN_EDGE_CM, 20);
-    const long0 = Math.max(w0, h0);
-    let best = FREEFORM_PRESET_LONG_SIDES_CM[0];
-    let bestD = Math.abs(long0 - best);
-    for (const v of FREEFORM_PRESET_LONG_SIDES_CM) {
-      const d = Math.abs(long0 - v);
-      if (d < bestD) { best = v; bestD = d; }
-    }
-    return String(best);
-  });
-
   // ✅ Freiform: Original-Sticker-Aspect (aus Maske) – wird genutzt um Billing proportional zu halten
   const [freeformCutAspect, setFreeformCutAspect] = useState(1);
   const lastFreeformEditRef = useRef("w"); // "w" | "h"
 
-  // ✅ Freiform: Preset-Optionen (Label zeigt resultierende WxH, Proportion bleibt erhalten)
-  const freeformPresetOptions = useMemo(() => {
-    const ar = Number(freeformCutAspect) || Number(imgAspect) || 1;
-    const safeAr = ar > 0 ? ar : 1;
-
-    return FREEFORM_PRESET_LONG_SIDES_CM.map((L) => {
-      const longSide = clampNum(L, MIN_EDGE_CM, 20);
-
-      let w = longSide;
-      let h = longSide;
-      if (safeAr >= 1) {
-        w = longSide;
-        h = longSide / safeAr;
-      } else {
-        h = longSide;
-        w = longSide * safeAr;
-      }
-
-      w = clampNum(w, MIN_EDGE_CM, 20);
-      h = clampNum(h, MIN_EDGE_CM, 20);
-
-      const label = `${Number(w).toFixed(2)} × ${Number(h).toFixed(2)} cm`;
-      return { value: String(longSide), w, h, label };
-    });
-  }, [freeformCutAspect, imgAspect]);
-
-  // ✅ Freiform: wenn Preset oder Aspect wechselt -> Billing-Maße nachziehen
-  useEffect(() => {
-    if (shape !== "freeform") return;
-    const opt =
-      freeformPresetOptions.find((o) => String(o.value) === String(freeformPresetLongCm)) || freeformPresetOptions[0];
-    if (!opt) return;
-
-    const nextW = Number(Number(opt.w).toFixed(2));
-    const nextH = Number(Number(opt.h).toFixed(2));
-
-    setBillingWidthCm((prev) => (approxEq(prev, nextW, 0.01) ? prev : nextW));
-    setBillingHeightCm((prev) => (approxEq(prev, nextH, 0.01) ? prev : nextH));
-  }, [shape, freeformPresetLongCm, freeformPresetOptions]);
+  // ✅ Freiform: Größenwahl über Dropdown (lange Kante), Proportion bleibt erhalten
+  const [freeformLongSideCm, setFreeformLongSideCm] = useState(4);
 
   const [bgMode, setBgMode] = useState("color"); // "color" | "white" | "transparent"
 
@@ -1509,6 +1458,42 @@ async function ensureSvgExportForCart(remoteUrlForExport) {
   const effWcm = effDims.wCm;
   const effHcm = effDims.hCm;
 
+
+  // ✅ Freiform: aus langer Kante + Aspect (W/H) -> Billing-Dims (cm)
+  function freeformDimsFromLongSide(longSideCm, aspectWdivH) {
+    const long = clampNum(longSideCm, MIN_EDGE_CM, 20);
+    const ar = Number(aspectWdivH);
+    const safeAr = Number.isFinite(ar) && ar > 1e-6 ? ar : 1;
+
+    let w = long;
+    let h = long;
+
+    if (safeAr >= 1) {
+      // breit -> Breite ist die lange Kante
+      w = long;
+      h = long / safeAr;
+    } else {
+      // hoch -> Höhe ist die lange Kante
+      h = long;
+      w = long * safeAr;
+    }
+
+    // Mindestkante sicherstellen (proportional hoch)
+    const r = enforceMinEdgeCm(w, h, MIN_EDGE_CM);
+    w = r.wCm;
+    h = r.hCm;
+
+    // max 20cm auf der langen Kante (falls durch Mindestkante/rounding drüber)
+    const maxSide = Math.max(w, h);
+    if (maxSide > 20) {
+      const k = 20 / Math.max(1e-9, maxSide);
+      w *= k;
+      h *= k;
+    }
+
+    return { wCm: Number(w.toFixed(2)), hCm: Number(h.toFixed(2)) };
+  }
+
   // ✅ Freiform: UI/State automatisch korrigieren (damit niemand unter 40mm bleibt)
   useEffect(() => {
     if (shape !== "freeform") return;
@@ -1527,6 +1512,20 @@ async function ensureSvgExportForCart(remoteUrlForExport) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, billingWidthCm, billingHeightCm]);
+
+
+  // ✅ Freiform: Dropdown -> Billing-Dims proportional zur Cutline (oder Bild-Aspect als Fallback)
+  useEffect(() => {
+    if (shape !== "freeform") return;
+
+    const ar = freeformCutAspect || imgAspect || 1;
+    const dims = freeformDimsFromLongSide(freeformLongSideCm, ar);
+
+    // nur setzen wenn wirklich Änderung (Loops vermeiden)
+    if (!approxEq(billingWidthCm, dims.wCm, 0.01)) setBillingWidthCm(dims.wCm);
+    if (!approxEq(billingHeightCm, dims.hCm, 0.01)) setBillingHeightCm(dims.hCm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shape, freeformLongSideCm, freeformCutAspect, imgAspect]);
 
   async function fetchVariantCatalog() {
   const baseUrl = api("/sticker/upload");
@@ -1766,6 +1765,17 @@ async function ensureSvgExportForCart(remoteUrlForExport) {
     setBillingWidthCm(widthCm);
     setBillingHeightCm(heightCm);
   }, [shape, widthCm, heightCm]);
+
+
+  // ✅ Freiform: Preset-LongSide aus aktuellen effektiven Maßen ableiten (beim Wechsel auf Freiform)
+  useEffect(() => {
+    if (shape !== "freeform") return;
+    const long = Math.max(Number(effWcm) || MIN_EDGE_CM, Number(effHcm) || MIN_EDGE_CM);
+    // auf nächste verfügbare Presetgröße runden (ceil)
+    const next = FREEFORM_LONGSIDE_PRESETS_CM.find((x) => x >= long) || FREEFORM_LONGSIDE_PRESETS_CM[FREEFORM_LONGSIDE_PRESETS_CM.length - 1];
+    if (Number(next) && next !== freeformLongSideCm) setFreeformLongSideCm(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shape]);
 
   // Multi-Product per shape
   const [activeHandle, setActiveHandle] = useState(() => {
@@ -2818,30 +2828,45 @@ try {
             </select>
           </label>
 
-          {/* ✅ Größe: feste Formen = Dropdown, Freiform = freie Eingabe */}
+          {/* ✅ Größe: feste Formen = Dropdown, Freiform = Dropdown (iOS-sicher) */}
           {shape === "freeform" ? (
             <>
+              
               <label>
                 Größe (Proportion bleibt erhalten)
                 <select
-                  value={String(freeformPresetLongCm)}
+                  value={String(freeformLongSideCm)}
                   onChange={(e) => {
                     setAddedMsg("");
-                    setFreeformPresetLongCm(String(e.target.value));
+                    const v = parseNumberDE(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    setFreeformLongSideCm(v);
                   }}
                   style={{ width: "100%", marginTop: 4, ...styles.select }}
                 >
-                  {freeformPresetOptions.map((o) => (
-                    <option key={`ffp-${o.value}`} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
+                  {FREEFORM_LONGSIDE_PRESETS_CM.map((cm) => {
+                    const ar = freeformCutAspect || imgAspect || 1;
+                    const dims = freeformDimsFromLongSide(cm, ar);
+                    const label = `${fmtCm(cm)} cm (≈ ${dims.wCm.toFixed(2)} × ${dims.hCm.toFixed(2)} cm)`;
+                    return (
+                      <option key={`ff-${cm}`} value={String(cm)}>
+                        {label}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
 
               <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                Billing-Box: <b>{fmtCm(billingWidthCm)} × {fmtCm(billingHeightCm)} cm</b>
+                Effektiv (Abrechnung):{" "}
+                <b>
+                  {fmtCm(effWcm)} × {fmtCm(effHcm)} cm
+                </b>
               </div>
+
+
+
+              
             </>
           ) : (
             <label>
