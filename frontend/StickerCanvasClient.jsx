@@ -2726,6 +2726,37 @@ try {
   const previewBg = useMemo(() => "#0b0f16", []);
 
   // ==============================
+  // iOS-Safe Stepper (Freeform Größe)
+  // - iOS/Safari blockiert native Number-Stepper in overflow:auto + -webkit-overflow-scrolling
+  // - daher: eigene +/- Buttons, Input readOnly
+  // ==============================
+  const FREEFORM_STEP_CM = 0.5;
+
+  function setFreeformBillingSize(edited, nextValueCm) {
+    setAddedMsg("");
+    lastFreeformEditRef.current = edited;
+
+    const ar = freeformCutAspect || imgAspect || 1;
+
+    const wNow = Number.isFinite(billingWidthCm) ? billingWidthCm : MIN_EDGE_CM;
+    const hNow = Number.isFinite(billingHeightCm) ? billingHeightCm : MIN_EDGE_CM;
+
+    const next = clampNum(nextValueCm, MIN_EDGE_CM, 20);
+
+    const r = enforceAspectWithMinEdge({
+      wCm: edited === "w" ? next : wNow,
+      hCm: edited === "h" ? next : hNow,
+      aspectWdivH: ar,
+      edited,
+      minEdgeCm: MIN_EDGE_CM,
+      maxEdgeCm: 20,
+    });
+
+    setBillingWidthCm(Number(r.wCm.toFixed(2)));
+    setBillingHeightCm(Number(r.hCm.toFixed(2)));
+  }
+
+  // ==============================
   // Render
   // ==============================
   return (
@@ -2767,68 +2798,72 @@ try {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
   <label>
     Breite (cm)
-    <input
-      inputMode="decimal"
-      type="number"
-      step="0.5"
-      min={String(MIN_EDGE_CM)}
-      max="20"
-      value={Number.isFinite(billingWidthCm) ? String(Number(billingWidthCm).toFixed(2)) : ""}
-      onChange={(e) => {
-        setAddedMsg("");
-        lastFreeformEditRef.current = "w";
+    <div className="sc-stepper">
+      <button
+        type="button"
+        className="sc-stepperBtn"
+        aria-label="Breite (cm) verringern"
+        onClick={() => setFreeformBillingSize("w", (Number.isFinite(billingWidthCm) ? billingWidthCm : MIN_EDGE_CM) - FREEFORM_STEP_CM)}
+      >
+        −
+      </button>
 
-        const wIn = parseNumberDE(e.target.value);
-        const ar = freeformCutAspect || imgAspect || 1;
+      <input
+        inputMode="decimal"
+        type="number"
+        readOnly
+        step="0.5"
+        min={String(MIN_EDGE_CM)}
+        max="20"
+        value={Number.isFinite(billingWidthCm) ? String(Number(billingWidthCm).toFixed(2)) : ""}
+        className="sc-stepperInput"
+        style={{ width: "100%", ...styles.input }}
+      />
 
-        const r = enforceAspectWithMinEdge({
-          wCm: wIn,
-          hCm: billingHeightCm,
-          aspectWdivH: ar,
-          edited: "w",
-          minEdgeCm: MIN_EDGE_CM,
-          maxEdgeCm: 20,
-        });
-
-        // ✅ auf 2 Nachkommastellen begrenzen
-        setBillingWidthCm(Number(r.wCm.toFixed(2)));
-        setBillingHeightCm(Number(r.hCm.toFixed(2)));
-      }}
-      style={{ width: "100%", marginTop: 4, ...styles.input }}
-    />
+      <button
+        type="button"
+        className="sc-stepperBtn"
+        aria-label="Breite (cm) erhöhen"
+        onClick={() => setFreeformBillingSize("w", (Number.isFinite(billingWidthCm) ? billingWidthCm : MIN_EDGE_CM) + FREEFORM_STEP_CM)}
+      >
+        +
+      </button>
+    </div>
   </label>
 
   <label>
     Höhe (cm)
-    <input
-      inputMode="decimal"
-      type="number"
-      step="0.5"
-      min={String(MIN_EDGE_CM)}
-      max="20"
-      value={Number.isFinite(billingHeightCm) ? String(Number(billingHeightCm).toFixed(2)) : ""}
-      onChange={(e) => {
-        setAddedMsg("");
-        lastFreeformEditRef.current = "h";
+    <div className="sc-stepper">
+      <button
+        type="button"
+        className="sc-stepperBtn"
+        aria-label="Höhe (cm) verringern"
+        onClick={() => setFreeformBillingSize("h", (Number.isFinite(billingHeightCm) ? billingHeightCm : MIN_EDGE_CM) - FREEFORM_STEP_CM)}
+      >
+        −
+      </button>
 
-        const hIn = parseNumberDE(e.target.value);
-        const ar = freeformCutAspect || imgAspect || 1;
+      <input
+        inputMode="decimal"
+        type="number"
+        readOnly
+        step="0.5"
+        min={String(MIN_EDGE_CM)}
+        max="20"
+        value={Number.isFinite(billingHeightCm) ? String(Number(billingHeightCm).toFixed(2)) : ""}
+        className="sc-stepperInput"
+        style={{ width: "100%", ...styles.input }}
+      />
 
-        const r = enforceAspectWithMinEdge({
-          wCm: billingWidthCm,
-          hCm: hIn,
-          aspectWdivH: ar,
-          edited: "h",
-          minEdgeCm: MIN_EDGE_CM,
-          maxEdgeCm: 20,
-        });
-
-        // ✅ auf 2 Nachkommastellen begrenzen
-        setBillingWidthCm(Number(r.wCm.toFixed(2)));
-        setBillingHeightCm(Number(r.hCm.toFixed(2)));
-      }}
-      style={{ width: "100%", marginTop: 4, ...styles.input }}
-    />
+      <button
+        type="button"
+        className="sc-stepperBtn"
+        aria-label="Höhe (cm) erhöhen"
+        onClick={() => setFreeformBillingSize("h", (Number.isFinite(billingHeightCm) ? billingHeightCm : MIN_EDGE_CM) + FREEFORM_STEP_CM)}
+      >
+        +
+      </button>
+    </div>
   </label>
 </div>
 
