@@ -94,8 +94,7 @@
   height: 100% !important;
 }
 
-/* ❗WICHTIG: die alten "height:100%" Zwangsregeln waren der Killer.
-   Wir lassen Wrapper voll breit, aber NICHT zwanghaft 100% hoch. */
+/* ❗WICHTIG: keine "height:100%" Zwangsregeln auf allen Kindknoten */
 .sticker-embed-react-root > * {
   width: 100% !important;
   max-width: none !important;
@@ -103,7 +102,6 @@
   min-height: 0 !important;
   min-width: 0 !important;
 
-  /* NICHT height:100% erzwingen */
   height: auto !important;
   max-height: none !important;
 }
@@ -118,21 +116,16 @@
 
 /* =========================================================
    ✅ GLOBAL LAYOUT: Preview oben, Optionen unten
-   ---------------------------------------------------------
-   Wir setzen das Layout auf den ersten Layout-Wrapper unter React-Root.
-   Dort sind typischerweise Sidebar + Preview direkte Kinder.
    ========================================================= */
-
-/* Der echte Layout-Wrapper */
 .sticker-embed-react-root > * {
   display: grid !important;
   grid-template-columns: 1fr !important;
   grid-template-rows: 1fr 42dvh !important; /* unten Sheet */
-  height: 100% !important;                 /* jetzt ist es safe: Wrapper kontrolliert */
+  height: 100% !important;
   overflow: hidden !important;
 }
 
-/* Preview ist bei dir sehr wahrscheinlich das 2. Kind */
+/* Preview ist sehr wahrscheinlich das 2. Kind */
 .sticker-embed-react-root > * > *:nth-child(2) {
   grid-column: 1 / -1;
   grid-row: 1;
@@ -216,8 +209,22 @@
 }
 
 /* =========================================================
-   ✅ Patch: Stepper / number-input iOS Fix entfernt
-   ---------------------------------------------------------
-   Grund: Freiform-Größe wird als Dropdown umgesetzt.
-   Es gibt keine number-inputs/Stepper mehr, daher nur Ballast.
+   ✅ WICHTIG: Stepper endgültig deaktivieren
+   - falls irgendein Script (sticker-configurator.js) noch Steppers injiziert
    ========================================================= */
+.sc-stepper,
+.sc-stepperBtn,
+.sc-stepperInput {
+  display: none !important;
+}
+
+/* Optional: native Spinbuttons weiterhin entfernen (stört nicht) */
+.sticker-embed-react-root input[type="number"]::-webkit-outer-spin-button,
+.sticker-embed-react-root input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.sticker-embed-react-root input[type="number"] {
+  -moz-appearance: textfield;
+}
