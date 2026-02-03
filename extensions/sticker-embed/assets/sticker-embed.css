@@ -1,11 +1,29 @@
+/* =========================================================
+   ✅ CTA Button: volle Breite + knalliges Rot
+   - macht "Sticker designen" so breit wie der Container (wie Checkout)
+   ========================================================= */
 .sticker-embed-button {
-  padding: 10px 16px;
+  width: 100% !important;          /* gleiche Breite wie Checkout-Button im rechten Container */
+  display: block;
+  box-sizing: border-box;
+
+  padding: 14px 16px;
   border-radius: 999px;
-  border: 5px;
-  background: #000;
-  color: #fff;
-  font-weight: 600;
+  border: 0 !important;            /* vorher war "border: 5px" ohne style -> uneindeutig */
+  background: #e10600 !important;  /* knalliges Rot */
+  color: #fff !important;
+  font-weight: 700;
   cursor: pointer;
+  text-align: center;
+}
+
+.sticker-embed-button:hover {
+  filter: brightness(0.92);
+}
+
+.sticker-embed-button:focus-visible {
+  outline: 2px solid rgba(225, 6, 0, 0.35);
+  outline-offset: 3px;
 }
 
 /* =========================================================
