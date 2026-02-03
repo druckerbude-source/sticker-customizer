@@ -38,6 +38,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
  * ✅ Neu (Freiräume schließen / füllen):
  * - Freiform: kleine Lücken/Schlitze zwischen Konturen werden vor Floodfill geschlossen (Mask-Closing)
  * - Dadurch entstehen keine unerwünschten "Freiräume" in der Freiform-Fläche (Screenshot 1 -> 2)
+ *
+ * ✅ Neu (UI Patch):
+ * - Upload-Button wird im rechten Preview-Bereich angezeigt, genau dort wo "Bitte links ein Bild hochladen." steht.
+ * - Linker Upload-Button bleibt als "Bild ändern" sichtbar, wenn bereits ein Bild vorhanden ist (kein Doppel-CTA).
  */
 
 //
@@ -576,7 +580,6 @@ function normalizeUrl(u) {
   return s;
 }
 
-
 // ==============================
 // Rotated Shapes (UI-only derived from base shapes)
 // ==============================
@@ -650,7 +653,6 @@ function normalizeSizeRow(row) {
     heightCm: Number.isFinite(heightCm) ? heightCm : NaN,
     variantId,
     piecesPerSet: Number.isFinite(piecesPerSet) ? Math.max(1, Math.round(piecesPerSet)) : null,
-
   };
 }
 
@@ -1129,20 +1131,19 @@ export default function StickerCanvasClient({
   // --- Variant Catalog (from loader) ---
   const [catalog, setCatalog] = useState(null);
 
-// Storefront-Bridge: Werte aus dem Embed an globale Resolver durchreichen (ohne UI-Änderung)
-useEffect(() => {
-  if (typeof window === "undefined") return;
+  // Storefront-Bridge: Werte aus dem Embed an globale Resolver durchreichen (ohne UI-Änderung)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
-  // apiBase (App-Proxy Basis)
-  const b = String(apiBase || "").trim();
-  if (b) window.__STICKER_API_BASE__ = b.replace(/\/$/, "");
+    // apiBase (App-Proxy Basis)
+    const b = String(apiBase || "").trim();
+    if (b) window.__STICKER_API_BASE__ = b.replace(/\/$/, "");
 
-  // Shape->Handle Map
-  if (shapeHandles && typeof shapeHandles === "object") {
-    window.__SC_SHAPE_HANDLES__ = shapeHandles;
-  }
-}, [apiBase, shapeHandles]);
-
+    // Shape->Handle Map
+    if (shapeHandles && typeof shapeHandles === "object") {
+      window.__SC_SHAPE_HANDLES__ = shapeHandles;
+    }
+  }, [apiBase, shapeHandles]);
 
   const [shape, setShape] = useState(String(defaultShape || "square").toLowerCase());
 
@@ -1170,12 +1171,12 @@ useEffect(() => {
   const [bgMode, setBgMode] = useState("color"); // "color" | "white" | "transparent"
 
   // ✅ bgMode (UI) -> colorKey (Catalog/Variant-Matching)
-  // Ohne diese Kopplung bleibt colorKey z.B. auf "white" und es wird immer die White-Variante (und ihr Preis) verwendet.
   useEffect(() => {
     const next = bgMode === "white" ? "white" : bgMode === "transparent" ? "transparent" : "colored";
     if (String(next) !== String(colorKey)) setColorKey(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bgMode]);
+
   const [bgColor, setBgColor] = useState(defaultBgColor || "#ffffff");
 
   const bgColorEff = useMemo(() => {
@@ -1240,199 +1241,198 @@ useEffect(() => {
   const imgElRef = useRef(null);
   const imgElUrlRef = useRef("");
 
+  // ✅ Cache: verhindert doppelten Export bei gleicher Konfiguration (für Add-to-Cart)
+  const lastExportKeyRef = useRef("");
+  const lastExportSvgUrlRef = useRef("");
 
-// ✅ Cache: verhindert doppelten Export bei gleicher Konfiguration (für Add-to-Cart)
-const lastExportKeyRef = useRef("");
-const lastExportSvgUrlRef = useRef("");
-
-function buildExportKeyForCart() {
-  // Key muss alle Parameter enthalten, die das Ergebnis beeinflussen
-  return [
-    String(imageUrl || ""),
-    String(shape || ""),
-    String(colorKey || ""),
-    String(sizeKey || ""),
-    String(bgMode || ""),
-    String(bgColorEff || ""),
-    String(freeformBorderMm || ""),
-    String(effWcm || ""),
-    String(effHcm || ""),
-    String(widthCm || ""),
-    String(heightCm || ""),
-  ].join("|");
-}
-
-async function ensureSvgExportForCart(remoteUrlForExport) {
-  const exportKey = buildExportKeyForCart();
-
-  // ✅ Wenn unverändert, cached URL verwenden
-  if (lastExportKeyRef.current === exportKey && lastExportSvgUrlRef.current) {
-    return lastExportSvgUrlRef.current;
+  function buildExportKeyForCart() {
+    // Key muss alle Parameter enthalten, die das Ergebnis beeinflussen
+    return [
+      String(imageUrl || ""),
+      String(shape || ""),
+      String(colorKey || ""),
+      String(sizeKey || ""),
+      String(bgMode || ""),
+      String(bgColorEff || ""),
+      String(freeformBorderMm || ""),
+      String(effWcm || ""),
+      String(effHcm || ""),
+      String(widthCm || ""),
+      String(heightCm || ""),
+    ].join("|");
   }
 
-  const url = api("/sticker/export");
+  async function ensureSvgExportForCart(remoteUrlForExport) {
+    const exportKey = buildExportKeyForCart();
 
-  // Bild laden (wie in deiner exportSvg())
-  const shared = imgElUrlRef.current === imageUrl ? imgElRef.current : null;
-  const img = shared || (await loadImage(imageUrl));
+    // ✅ Wenn unverändert, cached URL verwenden
+    if (lastExportKeyRef.current === exportKey && lastExportSvgUrlRef.current) {
+      return lastExportSvgUrlRef.current;
+    }
 
-  const effectiveDpi = calcEffectiveDpi({
-    imgPxW: img.naturalWidth || img.width || 0,
-    imgPxH: img.naturalHeight || img.height || 0,
-    targetCmW: effWcm,
-    targetCmH: effHcm,
-  });
+    const url = api("/sticker/export");
 
-  if (effectiveDpi < MIN_DPI) {
-    throw new Error(
-      `Bildauflösung zu gering (${Math.round(effectiveDpi)} DPI). Minimum: ${MIN_DPI} DPI. ` +
-        `Bitte ein größeres Bild hochladen oder Sticker kleiner wählen.`
-    );
-  }
+    // Bild laden (wie in deiner exportSvg())
+    const shared = imgElUrlRef.current === imageUrl ? imgElRef.current : null;
+    const img = shared || (await loadImage(imageUrl));
 
-  const baseWidthPx = cmToPxAtDpi(effWcm, EXPORT_DPI);
-  const baseHeightPx = cmToPxAtDpi(effHcm, EXPORT_DPI);
-
-  const isRound = shape === "round";
-  const isOval = shape === "oval" || shape === "oval_portrait";
-  const isSquare = shape === "square";
-  const isSquareRounded = shape === "square_rounded";
-  const isRectRounded = shape === "rect_rounded" || shape === "rect_landscape_rounded";
-  const isRounded = isSquareRounded || isRectRounded;
-
-  const pad = isRounded ? mmToPxAtDpi(ROUNDED_RADIUS_MM, EXPORT_DPI) : 0;
-  const needsBgFill = (isRound || isOval || isSquare || isRounded) && hasBgFill;
-
-  const exportSizePx = isRound ? Math.max(1, Math.round(diagonalFromRect(baseWidthPx, baseHeightPx))) : null;
-  const exportOvalW = isOval ? Math.max(1, Math.round(baseWidthPx * SQRT2)) : null;
-  const exportOvalH = isOval ? Math.max(1, Math.round(baseHeightPx * SQRT2)) : null;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = isRound
-    ? exportSizePx
-    : isOval
-    ? exportOvalW
-    : isRounded
-    ? Math.max(1, baseWidthPx + pad * 2)
-    : baseWidthPx;
-
-  canvas.height = isRound
-    ? exportSizePx
-    : isOval
-    ? exportOvalH
-    : isRounded
-    ? Math.max(1, baseHeightPx + pad * 2)
-    : baseHeightPx;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
-
-  const computeContainInRect = (rectX, rectY, rectW, rectH) => {
-    const iw = img.naturalWidth || img.width || 1;
-    const ih = img.naturalHeight || img.height || 1;
-    const scale = Math.min(rectW / iw, rectH / ih);
-    const dw = iw * scale;
-    const dh = ih * scale;
-    const dx = rectX + (rectW - dw) / 2;
-    const dy = rectY + (rectH - dh) / 2;
-    return { dx, dy, dw, dh };
-  };
-
-  const drawContainInRect = (targetCtx, rectX, rectY, rectW, rectH) => {
-    const { dx, dy, dw, dh } = computeContainInRect(rectX, rectY, rectW, rectH);
-    targetCtx.drawImage(img, dx, dy, dw, dh);
-  };
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (needsBgFill) {
-    ctx.fillStyle = bgColorEff || "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-
-  if (isRound || isOval) {
-    const rectX = (canvas.width - baseWidthPx) / 2;
-    const rectY = (canvas.height - baseHeightPx) / 2;
-    drawContainInRect(ctx, rectX, rectY, baseWidthPx, baseHeightPx);
-  } else if (isRounded) {
-    drawContainInRect(ctx, pad, pad, baseWidthPx, baseHeightPx);
-  } else if (shape === "freeform") {
-    const master =
-      freeformMaster ||
-      buildFreeformMasterMask({
-        imgEl: img,
-        imgAspect: imgAspect || 1,
-        getMasterRectFromAspect,
-        maxMaskDim: 520,
-        padPx: 120,
-      });
-
-    const borderPx = mmToPxAtDpi(freeformBorderMm, EXPORT_DPI);
-
-    const ffCanvas = renderFreeformFromMasterMask({
-      master,
-      outWpx: cmToPxAtDpi(widthCm, EXPORT_DPI),
-      outHpx: cmToPxAtDpi(heightCm, EXPORT_DPI),
-      bgColor: hasBgFill ? bgColorEff : "transparent",
-      borderPx,
+    const effectiveDpi = calcEffectiveDpi({
+      imgPxW: img.naturalWidth || img.width || 0,
+      imgPxH: img.naturalHeight || img.height || 0,
+      targetCmW: effWcm,
+      targetCmH: effHcm,
     });
 
-    canvas.width = ffCanvas.width;
-    canvas.height = ffCanvas.height;
-    const ctxFF = canvas.getContext("2d");
-    if (!ctxFF) throw new Error("Canvas Kontext nicht verfügbar.");
-    ctxFF.clearRect(0, 0, canvas.width, canvas.height);
-    ctxFF.drawImage(ffCanvas, 0, 0);
-  } else {
-    drawContainInRect(ctx, 0, 0, canvas.width, canvas.height);
+    if (effectiveDpi < MIN_DPI) {
+      throw new Error(
+        `Bildauflösung zu gering (${Math.round(effectiveDpi)} DPI). Minimum: ${MIN_DPI} DPI. ` +
+          `Bitte ein größeres Bild hochladen oder Sticker kleiner wählen.`
+      );
+    }
+
+    const baseWidthPx = cmToPxAtDpi(effWcm, EXPORT_DPI);
+    const baseHeightPx = cmToPxAtDpi(effHcm, EXPORT_DPI);
+
+    const isRound = shape === "round";
+    const isOval = shape === "oval" || shape === "oval_portrait";
+    const isSquare = shape === "square";
+    const isSquareRounded = shape === "square_rounded";
+    const isRectRounded = shape === "rect_rounded" || shape === "rect_landscape_rounded";
+    const isRounded = isSquareRounded || isRectRounded;
+
+    const pad = isRounded ? mmToPxAtDpi(ROUNDED_RADIUS_MM, EXPORT_DPI) : 0;
+    const needsBgFill = (isRound || isOval || isSquare || isRounded) && hasBgFill;
+
+    const exportSizePx = isRound ? Math.max(1, Math.round(diagonalFromRect(baseWidthPx, baseHeightPx))) : null;
+    const exportOvalW = isOval ? Math.max(1, Math.round(baseWidthPx * SQRT2)) : null;
+    const exportOvalH = isOval ? Math.max(1, Math.round(baseHeightPx * SQRT2)) : null;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = isRound
+      ? exportSizePx
+      : isOval
+      ? exportOvalW
+      : isRounded
+      ? Math.max(1, baseWidthPx + pad * 2)
+      : baseWidthPx;
+
+    canvas.height = isRound
+      ? exportSizePx
+      : isOval
+      ? exportOvalH
+      : isRounded
+      ? Math.max(1, baseHeightPx + pad * 2)
+      : baseHeightPx;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
+
+    const computeContainInRect = (rectX, rectY, rectW, rectH) => {
+      const iw = img.naturalWidth || img.width || 1;
+      const ih = img.naturalHeight || img.height || 1;
+      const scale = Math.min(rectW / iw, rectH / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      const dx = rectX + (rectW - dw) / 2;
+      const dy = rectY + (rectH - dh) / 2;
+      return { dx, dy, dw, dh };
+    };
+
+    const drawContainInRect = (targetCtx, rectX, rectY, rectW, rectH) => {
+      const { dx, dy, dw, dh } = computeContainInRect(rectX, rectY, rectW, rectH);
+      targetCtx.drawImage(img, dx, dy, dw, dh);
+    };
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (needsBgFill) {
+      ctx.fillStyle = bgColorEff || "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (isRound || isOval) {
+      const rectX = (canvas.width - baseWidthPx) / 2;
+      const rectY = (canvas.height - baseHeightPx) / 2;
+      drawContainInRect(ctx, rectX, rectY, baseWidthPx, baseHeightPx);
+    } else if (isRounded) {
+      drawContainInRect(ctx, pad, pad, baseWidthPx, baseHeightPx);
+    } else if (shape === "freeform") {
+      const master =
+        freeformMaster ||
+        buildFreeformMasterMask({
+          imgEl: img,
+          imgAspect: imgAspect || 1,
+          getMasterRectFromAspect,
+          maxMaskDim: 520,
+          padPx: 120,
+        });
+
+      const borderPx = mmToPxAtDpi(freeformBorderMm, EXPORT_DPI);
+
+      const ffCanvas = renderFreeformFromMasterMask({
+        master,
+        outWpx: cmToPxAtDpi(widthCm, EXPORT_DPI),
+        outHpx: cmToPxAtDpi(heightCm, EXPORT_DPI),
+        bgColor: hasBgFill ? bgColorEff : "transparent",
+        borderPx,
+      });
+
+      canvas.width = ffCanvas.width;
+      canvas.height = ffCanvas.height;
+      const ctxFF = canvas.getContext("2d");
+      if (!ctxFF) throw new Error("Canvas Kontext nicht verfügbar.");
+      ctxFF.clearRect(0, 0, canvas.width, canvas.height);
+      ctxFF.drawImage(ffCanvas, 0, 0);
+    } else {
+      drawContainInRect(ctx, 0, 0, canvas.width, canvas.height);
+    }
+
+    const renderedDataUrl = canvas.toDataURL("image/png");
+
+    // ✅ Export API call (SVG wird serverseitig gebaut + zu Shopify Files hochgeladen)
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        renderedDataUrl,
+        imageUrl: remoteUrlForExport, // wichtig: remote (Shopify erreichbarer) Pfad
+        shape,
+        widthPx: canvas.width,
+        heightPx: canvas.height,
+
+        bgMode,
+        bgColor: bgColorEff,
+
+        rectWidthPx: baseWidthPx,
+        rectHeightPx: baseHeightPx,
+        dpi: EXPORT_DPI,
+        effectiveDpi: Math.round(effectiveDpi),
+
+        colorKey: String(colorKey || "white"),
+        sizeKey: String(sizeKey || ""),
+        widthCm: Number(effWcm) || 0,
+        heightCm: Number(effHcm) || 0,
+
+        // ✅ wichtig: wir wollen in Prod SVG zu Shopify hochladen
+        uploadSvgToShopify: true,
+        uploadPngToShopify: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Export API error ${res.status}: ${t}`);
+    }
+
+    const data = await res.json().catch(() => null);
+    if (!data?.svgUrl) throw new Error("Export OK, aber keine svgUrl im Response.");
+
+    // ✅ Cache setzen
+    lastExportKeyRef.current = exportKey;
+    lastExportSvgUrlRef.current = data.svgUrl;
+
+    return data.svgUrl;
   }
-
-  const renderedDataUrl = canvas.toDataURL("image/png");
-
-  // ✅ Export API call (SVG wird serverseitig gebaut + zu Shopify Files hochgeladen)
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      renderedDataUrl,
-      imageUrl: remoteUrlForExport, // wichtig: remote (Shopify erreichbarer) Pfad
-      shape,
-      widthPx: canvas.width,
-      heightPx: canvas.height,
-
-      bgMode,
-      bgColor: bgColorEff,
-
-      rectWidthPx: baseWidthPx,
-      rectHeightPx: baseHeightPx,
-      dpi: EXPORT_DPI,
-      effectiveDpi: Math.round(effectiveDpi),
-
-      colorKey: String(colorKey || "white"),
-      sizeKey: String(sizeKey || ""),
-      widthCm: Number(effWcm) || 0,
-      heightCm: Number(effHcm) || 0,
-
-      // ✅ wichtig: wir wollen in Prod SVG zu Shopify hochladen
-      uploadSvgToShopify: true,
-      uploadPngToShopify: false,
-    }),
-  });
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`Export API error ${res.status}: ${t}`);
-  }
-
-  const data = await res.json().catch(() => null);
-  if (!data?.svgUrl) throw new Error("Export OK, aber keine svgUrl im Response.");
-
-  // ✅ Cache setzen
-  lastExportKeyRef.current = exportKey;
-  lastExportSvgUrlRef.current = data.svgUrl;
-
-  return data.svgUrl;
-}
 
   // ✅ Viewport (für stabile Preview-Box in px)
   const [vp, setVp] = useState(() => ({
@@ -1457,7 +1457,6 @@ async function ensureSvgExportForCart(remoteUrlForExport) {
 
   const effWcm = effDims.wCm;
   const effHcm = effDims.hCm;
-
 
   // ✅ Freiform: aus langer Kante + Aspect (W/H) -> Billing-Dims (cm)
   function freeformDimsFromLongSide(longSideCm, aspectWdivH) {
@@ -1513,7 +1512,6 @@ async function ensureSvgExportForCart(remoteUrlForExport) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, billingWidthCm, billingHeightCm]);
 
-
   // ✅ Freiform: Dropdown -> Billing-Dims proportional zur Cutline (oder Bild-Aspect als Fallback)
   useEffect(() => {
     if (shape !== "freeform") return;
@@ -1528,21 +1526,21 @@ async function ensureSvgExportForCart(remoteUrlForExport) {
   }, [shape, freeformLongSideCm, freeformCutAspect, imgAspect]);
 
   async function fetchVariantCatalog() {
-  const baseUrl = api("/sticker/upload");
-  const sep = String(baseUrl).includes("?") ? "&" : "?";
-  const url = `${baseUrl}${sep}cb=${Date.now()}`;
+    const baseUrl = api("/sticker/upload");
+    const sep = String(baseUrl).includes("?") ? "&" : "?";
+    const url = `${baseUrl}${sep}cb=${Date.now()}`;
 
-  const res = await fetch(url, {
-    method: "GET",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: { Accept: "application/json" },
-  });
+    const res = await fetch(url, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
 
-  if (!res.ok) throw new Error(`Catalog fetch failed: ${res.status}`);
-  const data = await res.json().catch(() => null);
-  return data?.catalog || null;
-}
+    if (!res.ok) throw new Error(`Catalog fetch failed: ${res.status}`);
+    const data = await res.json().catch(() => null);
+    return data?.catalog || null;
+  }
 
   useEffect(() => {
     let alive = true;
@@ -1766,13 +1764,14 @@ async function ensureSvgExportForCart(remoteUrlForExport) {
     setBillingHeightCm(heightCm);
   }, [shape, widthCm, heightCm]);
 
-
   // ✅ Freiform: Preset-LongSide aus aktuellen effektiven Maßen ableiten (beim Wechsel auf Freiform)
   useEffect(() => {
     if (shape !== "freeform") return;
     const long = Math.max(Number(effWcm) || MIN_EDGE_CM, Number(effHcm) || MIN_EDGE_CM);
     // auf nächste verfügbare Presetgröße runden (ceil)
-    const next = FREEFORM_LONGSIDE_PRESETS_CM.find((x) => x >= long) || FREEFORM_LONGSIDE_PRESETS_CM[FREEFORM_LONGSIDE_PRESETS_CM.length - 1];
+    const next =
+      FREEFORM_LONGSIDE_PRESETS_CM.find((x) => x >= long) ||
+      FREEFORM_LONGSIDE_PRESETS_CM[FREEFORM_LONGSIDE_PRESETS_CM.length - 1];
     if (Number(next) && next !== freeformLongSideCm) setFreeformLongSideCm(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
@@ -1795,154 +1794,148 @@ async function ensureSvgExportForCart(remoteUrlForExport) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, shapeMeta]);
 
-  // Cache + Inflight-Guard gegen Request-Sturm (z. B. wenn productVariants im Storefront häufig neu referenziert wird)
-const variantInfoCacheRef = useRef(new Map()); // vid -> { price:number, title:string }
-const variantInfoInFlightRef = useRef(new Map()); // vid -> Promise
-const lastVariantFetchVidRef = useRef(0);
+  // Cache + Inflight-Guard gegen Request-Sturm
+  const variantInfoCacheRef = useRef(new Map()); // vid -> { price:number, title:string }
+  const variantInfoInFlightRef = useRef(new Map()); // vid -> Promise
+  const lastVariantFetchVidRef = useRef(0);
 
-useEffect(() => {
-  let cancelled = false;
+  useEffect(() => {
+    let cancelled = false;
 
-  const vid = Number(selectedVariantId) || 0;
-  if (!vid) return;
+    const vid = Number(selectedVariantId) || 0;
+    if (!vid) return;
 
-  // 0) Cache: wenn wir die Variant-Info schon haben, nicht nochmal fetchen
-  const cached = variantInfoCacheRef.current.get(vid);
-  if (cached) {
-    setSelectedVariantPrice(Number(cached.price) || 0);
-    setSelectedVariantTitle(String(cached.title || ""));
-    return;
-  }
-
-  // 1) Wenn Variantenliste vorhanden ist (z.B. bereits geladen), daraus ziehen und cachen
-  const fromList = Array.isArray(productVariants)
-    ? productVariants.find((x) => Number(x?.id) === vid)
-    : null;
-
-  if (fromList) {
-    const price = toEuroFromCents(fromList?.price);
-    const title = String(fromList?.title || "");
-    variantInfoCacheRef.current.set(vid, { price, title });
-    setSelectedVariantPrice(price);
-    setSelectedVariantTitle(title);
-    return;
-  }
-
-  // 2) Inflight-Guard: gleiche Variant-ID nicht parallel / nicht endlos erneut laden
-  if (variantInfoInFlightRef.current.get(vid)) {
-    return () => {
-      cancelled = true;
-    };
-  }
-  lastVariantFetchVidRef.current = vid;
-
-  const controller = new AbortController();
-
-  const p = (async () => {
-    // A) ✅ Storefront: same-origin variants/<id>.js
-    try {
-      const res = await fetch(`/variants/${vid}.js`, {
-        method: "GET",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      });
-
-      if (res.ok) {
-        const j = await res.json().catch(() => null);
-        if (j && !cancelled) {
-          const price = toEuroFromCents(j?.price);
-          const title = String(j?.public_title || j?.title || "");
-          variantInfoCacheRef.current.set(vid, { price, title });
-          setSelectedVariantPrice(price);
-          setSelectedVariantTitle(title);
-          return;
-        }
-      }
-    } catch (_) {
-      // ignore
+    // 0) Cache: wenn wir die Variant-Info schon haben, nicht nochmal fetchen
+    const cached = variantInfoCacheRef.current.get(vid);
+    if (cached) {
+      setSelectedVariantPrice(Number(cached.price) || 0);
+      setSelectedVariantTitle(String(cached.title || ""));
+      return;
     }
 
-    // B) ✅ Same-origin App-Backend (Admin / Fallback)
-    try {
-      const res = await fetch(
-        api(`/sticker/variant?variantId=${encodeURIComponent(String(vid))}`),
-        {
+    // 1) Wenn Variantenliste vorhanden ist (z.B. bereits geladen), daraus ziehen und cachen
+    const fromList = Array.isArray(productVariants) ? productVariants.find((x) => Number(x?.id) === vid) : null;
+
+    if (fromList) {
+      const price = toEuroFromCents(fromList?.price);
+      const title = String(fromList?.title || "");
+      variantInfoCacheRef.current.set(vid, { price, title });
+      setSelectedVariantPrice(price);
+      setSelectedVariantTitle(title);
+      return;
+    }
+
+    // 2) Inflight-Guard: gleiche Variant-ID nicht parallel / nicht endlos erneut laden
+    if (variantInfoInFlightRef.current.get(vid)) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    lastVariantFetchVidRef.current = vid;
+
+    const controller = new AbortController();
+
+    const p = (async () => {
+      // A) ✅ Storefront: same-origin variants/<id>.js
+      try {
+        const res = await fetch(`/variants/${vid}.js`, {
           method: "GET",
           credentials: "same-origin",
           cache: "no-store",
           headers: { Accept: "application/json" },
           signal: controller.signal,
+        });
+
+        if (res.ok) {
+          const j = await res.json().catch(() => null);
+          if (j && !cancelled) {
+            const price = toEuroFromCents(j?.price);
+            const title = String(j?.public_title || j?.title || "");
+            variantInfoCacheRef.current.set(vid, { price, title });
+            setSelectedVariantPrice(price);
+            setSelectedVariantTitle(title);
+            return;
+          }
         }
-      );
-
-      const j = await res.json().catch(() => null);
-      if (res.ok && j && j.ok) {
-        const raw = j.price ?? j.priceCents ?? j.cents ?? j.amount ?? "";
-        let priceNum = 0;
-
-        if (typeof raw === "number") {
-          priceNum = raw > 999 ? toEuroFromCents(raw) : raw;
-        } else {
-          const str = String(raw).trim();
-          if (/^\d+$/.test(str) && str.length >= 3) priceNum = toEuroFromCents(Number(str));
-          else priceNum = Number(str.replace(",", "."));
-        }
-
-        const price = Number.isFinite(priceNum) ? priceNum : 0;
-        const title = String(j.title || j.public_title || j.name || "");
-
-        if (!cancelled) {
-          variantInfoCacheRef.current.set(vid, { price, title });
-          setSelectedVariantPrice(price);
-          setSelectedVariantTitle(title);
-        }
-        return;
+      } catch (_) {
+        // ignore
       }
-    } catch (_) {
-      // ignore
-    }
 
-    // C) Fallback: direct variant endpoint über erkannte Shop-Domain (ohne Cookies)
-    try {
-      const shopHost = normalizeShopDomain(guessShopDomain());
-      if (!shopHost) return;
+      // B) ✅ Same-origin App-Backend (Admin / Fallback)
+      try {
+        const res = await fetch(api(`/sticker/variant?variantId=${encodeURIComponent(String(vid))}`), {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        });
 
-      const res = await fetch(`https://${shopHost}/variants/${vid}.js`, {
-        credentials: "omit",
-        signal: controller.signal,
-      });
+        const j = await res.json().catch(() => null);
+        if (res.ok && j && j.ok) {
+          const raw = j.price ?? j.priceCents ?? j.cents ?? j.amount ?? "";
+          let priceNum = 0;
 
-      if (!res.ok) return;
+          if (typeof raw === "number") {
+            priceNum = raw > 999 ? toEuroFromCents(raw) : raw;
+          } else {
+            const str = String(raw).trim();
+            if (/^\d+$/.test(str) && str.length >= 3) priceNum = toEuroFromCents(Number(str));
+            else priceNum = Number(str.replace(",", "."));
+          }
 
-      const j = await res.json().catch(() => null);
-      if (!j || cancelled) return;
+          const price = Number.isFinite(priceNum) ? priceNum : 0;
+          const title = String(j.title || j.public_title || j.name || "");
 
-      const price = toEuroFromCents(j?.price);
-      const title = String(j?.public_title || j?.title || "");
+          if (!cancelled) {
+            variantInfoCacheRef.current.set(vid, { price, title });
+            setSelectedVariantPrice(price);
+            setSelectedVariantTitle(title);
+          }
+          return;
+        }
+      } catch (_) {
+        // ignore
+      }
 
-      variantInfoCacheRef.current.set(vid, { price, title });
-      setSelectedVariantPrice(price);
-      setSelectedVariantTitle(title);
-    } catch (_) {
-      // ignore
-    }
-  })()
-    .finally(() => {
+      // C) Fallback: direct variant endpoint über erkannte Shop-Domain (ohne Cookies)
+      try {
+        const shopHost = normalizeShopDomain(guessShopDomain());
+        if (!shopHost) return;
+
+        const res = await fetch(`https://${shopHost}/variants/${vid}.js`, {
+          credentials: "omit",
+          signal: controller.signal,
+        });
+
+        if (!res.ok) return;
+
+        const j = await res.json().catch(() => null);
+        if (!j || cancelled) return;
+
+        const price = toEuroFromCents(j?.price);
+        const title = String(j?.public_title || j?.title || "");
+
+        variantInfoCacheRef.current.set(vid, { price, title });
+        setSelectedVariantPrice(price);
+        setSelectedVariantTitle(title);
+      } catch (_) {
+        // ignore
+      }
+    })().finally(() => {
       // inflight cleanup
       variantInfoInFlightRef.current.delete(vid);
     });
 
-  variantInfoInFlightRef.current.set(vid, p);
+    variantInfoInFlightRef.current.set(vid, p);
 
-  return () => {
-    cancelled = true;
-    try {
-      controller.abort();
-    } catch (_) {}
-  };
-}, [selectedVariantId, productVariants]);
+    return () => {
+      cancelled = true;
+      try {
+        controller.abort();
+      } catch (_) {}
+    };
+  }, [selectedVariantId, productVariants]);
 
   useEffect(() => {
     setPriceTotal(Number(selectedVariantPrice) || 0);
@@ -2211,25 +2204,15 @@ useEffect(() => {
       return;
     }
 
-    // ✅ WICHTIG (Fix "verzogene" Ansicht nach Export):
-    // Solange das Editor-Work-Image ein lokales Blob-URL ist, darf die Preview NICHT
-    // automatisch auf eine server-gerenderte Preview umschalten. Beim Export/Add-to-cart
-    // wird das Bild remote hochgeladen (uploadedUrl) und die serverPreview-Logik würde
-    // danach anspringen und displaySrc ändern.
-    // Das kann (je nach Backend-Render/Padding) dazu führen, dass die Freiform-Maske im
-    // Editor optisch "verzogen" wirkt, obwohl das Design korrekt ist.
-    // => Server-Preview nur verwenden, wenn imageUrl selbst schon remote ist.
     const normalizedImageUrl = normalizeUrl(imageUrl);
 
-    const allowServerPreview =
-      isProbablyRemoteUrl(normalizedImageUrl) && !isBlobUrl(normalizedImageUrl);
+    const allowServerPreview = isProbablyRemoteUrl(normalizedImageUrl) && !isBlobUrl(normalizedImageUrl);
 
     if (!allowServerPreview) {
       if (serverPreviewUrl) setServerPreviewUrl("");
       return;
     }
 
-    // Wenn imageUrl remote ist, nehmen wir das direkt (keine "hidden" Umschaltung via uploadedUrl).
     const srcUrl = normalizedImageUrl;
     if (!srcUrl) {
       setServerPreviewUrl("");
@@ -2265,7 +2248,6 @@ useEffect(() => {
               freeformBorderMm,
               maxPx: 700,
 
-              // ✅ optional: Backend kann später dieselbe Logik nutzen
               sealGapsPx: FREEFORM_SEAL_GAPS_PX,
             }),
           });
@@ -2299,24 +2281,11 @@ useEffect(() => {
 
   const displaySrc = useMemo(() => {
     if (shape === "freeform") {
-      // Bei lokalem Work-Image (blob:) niemals auf serverPreviewUrl umschalten,
-      // damit sich die Darstellung nach Export/Add-to-cart nicht "verzieht".
-      if (isBlobUrl(normalizedDisplayImageUrl))
-        return freeformPreviewUrl || normalizedDisplayImageUrl || "";
-      return (
-        serverPreviewUrl ||
-        freeformPreviewUrl ||
-        normalizedDisplayImageUrl ||
-        ""
-      );
+      if (isBlobUrl(normalizedDisplayImageUrl)) return freeformPreviewUrl || normalizedDisplayImageUrl || "";
+      return serverPreviewUrl || freeformPreviewUrl || normalizedDisplayImageUrl || "";
     }
     return normalizedDisplayImageUrl;
-  }, [
-    shape,
-    serverPreviewUrl,
-    freeformPreviewUrl,
-    normalizedDisplayImageUrl,
-  ]);
+  }, [shape, serverPreviewUrl, freeformPreviewUrl, normalizedDisplayImageUrl]);
 
   const freeformReady = useMemo(() => {
     if (shape !== "freeform") return true;
@@ -2425,6 +2394,14 @@ useEffect(() => {
     return out;
   }
 
+  // ✅ UI helper: Filepicker öffnen (für rechten "Hero Upload" Button)
+  function openFilePicker() {
+    setAddedMsg("");
+    try {
+      fileInputRef.current?.click();
+    } catch (_) {}
+  }
+
   // ==============================
   // Export
   // ==============================
@@ -2451,19 +2428,19 @@ useEffect(() => {
       setExporting(false);
     }
   }
+
   useEffect(() => {
-  // 1) Wenn Katalogwert existiert: den verwenden
-  const fromCatalog = selectedSizeObj?.piecesPerSet;
-  if (Number.isFinite(fromCatalog) && fromCatalog > 0) {
-    setRealPieces((prev) => (prev === fromCatalog ? prev : fromCatalog));
-    return;
-  }
+    // 1) Wenn Katalogwert existiert: den verwenden
+    const fromCatalog = selectedSizeObj?.piecesPerSet;
+    if (Number.isFinite(fromCatalog) && fromCatalog > 0) {
+      setRealPieces((prev) =>a=> (prev === fromCatalog ? prev : fromCatalog));
+      return;
+    }
 
-  // 2) Fallback: bisherige Berechnung (falls Katalog noch nicht gepflegt)
-  const pieces = calcPiecesFixed(shape, effWcm, effHcm);
-  setRealPieces((prev) => (prev === pieces ? prev : pieces));
-}, [selectedSizeObj, shape, effWcm, effHcm]);
-
+    // 2) Fallback: bisherige Berechnung (falls Katalog noch nicht gepflegt)
+    const pieces = calcPiecesFixed(shape, effWcm, effHcm);
+    setRealPieces((prev) => (prev === pieces ? prev : pieces));
+  }, [selectedSizeObj, shape, effWcm, effHcm]);
 
   // ==============================
   // Cart
@@ -2495,16 +2472,15 @@ useEffect(() => {
       return;
     }
 
-
-// ✅ NEU: SVG Export erzeugen und URL merken (Shopify Files URL)
-let svgUrl = "";
-try {
-  svgUrl = await ensureSvgExportForCart(remoteUrl);
-} catch (e) {
-  // SVG ist für Produktion Pflicht -> abbrechen
-  setErrorMsg(e?.message || String(e));
-  return;
-}
+    // ✅ NEU: SVG Export erzeugen und URL merken (Shopify Files URL)
+    let svgUrl = "";
+    try {
+      svgUrl = await ensureSvgExportForCart(remoteUrl);
+    } catch (e) {
+      // SVG ist für Produktion Pflicht -> abbrechen
+      setErrorMsg(e?.message || String(e));
+      return;
+    }
 
     const pieces = Math.max(1, Number(realPieces) || calcPiecesFixed(shape, effWcm, effHcm));
     if (pieces > 9999) {
@@ -2530,34 +2506,33 @@ try {
         id: variantId,
         quantity: 1,
         properties: {
-  _sc_line_id: String(Date.now()),
+          _sc_line_id: String(Date.now()),
 
-  _sc_shape: String(shape),
-  
-  _sc_major_cm: fmtCm(major),
-  _sc_print_length_cm: String(PRINT_LENGTH_CM),
+          _sc_shape: String(shape),
 
-  // ✅ intern (bleibt)
-  _sc_pieces_per_pack: String(pieces),
-  _sc_total_pieces_hint: String(pieces),
+          _sc_major_cm: fmtCm(major),
+          _sc_print_length_cm: String(PRINT_LENGTH_CM),
 
-  _sc_design_w_cm: shape === "freeform" ? fmtCm(widthCm) : "",
-  _sc_design_h_cm: shape === "freeform" ? fmtCm(heightCm) : "",
+          // ✅ intern (bleibt)
+          _sc_pieces_per_pack: String(pieces),
+          _sc_total_pieces_hint: String(pieces),
 
-  _sc_bg_mode: String(bgMode || "color"),
-  _sc_bg: String(bgColorEff || ""),
-  _sc_border_mm: String(freeformBorderMm),
+          _sc_design_w_cm: shape === "freeform" ? fmtCm(widthCm) : "",
+          _sc_design_h_cm: shape === "freeform" ? fmtCm(heightCm) : "",
 
-  _sc_image: remoteUrl,
+          _sc_bg_mode: String(bgMode || "color"),
+          _sc_bg: String(bgColorEff || ""),
+          _sc_border_mm: String(freeformBorderMm),
 
-  // ✅ NEU: Link zur Produktions-SVG (Shopify Files)
-  _sc_svg: svgUrl,
+          _sc_image: remoteUrl,
 
-  _sc_variant_id: String(variantId),
-  _sc_variant_title: variantTitle,
-  _sc_variant_price_eur: String(variantPriceEur.toFixed(2)),
-},
+          // ✅ NEU: Link zur Produktions-SVG (Shopify Files)
+          _sc_svg: svgUrl,
 
+          _sc_variant_id: String(variantId),
+          _sc_variant_title: variantTitle,
+          _sc_variant_price_eur: String(variantPriceEur.toFixed(2)),
+        },
       },
     ];
 
@@ -2785,8 +2760,7 @@ try {
     if (shape !== "freeform") return null;
     if (!showTransparentMark) return null;
     return {
-      filter:
-        "drop-shadow(0 0 0.9px rgba(255,255,255,0.70)) drop-shadow(0 8px 22px rgba(0,0,0,0.45))",
+      filter: "drop-shadow(0 0 0.9px rgba(255,255,255,0.70)) drop-shadow(0 8px 22px rgba(0,0,0,0.45))",
     };
   }, [shape, showTransparentMark]);
 
@@ -2831,7 +2805,6 @@ try {
           {/* ✅ Größe: feste Formen = Dropdown, Freiform = Dropdown (iOS-sicher) */}
           {shape === "freeform" ? (
             <>
-              
               <label>
                 Größe (Proportion bleibt erhalten)
                 <select
@@ -2863,10 +2836,6 @@ try {
                   {fmtCm(effWcm)} × {fmtCm(effHcm)} cm
                 </b>
               </div>
-
-
-
-              
             </>
           ) : (
             <label>
@@ -2892,11 +2861,7 @@ try {
         </div>
 
         <div style={styles.label}>Hintergrund</div>
-        <select
-          value={bgMode}
-          onChange={(e) => setBgMode(e.target.value)}
-          style={{ width: "100%", marginTop: 4, ...styles.select }}
-        >
+        <select value={bgMode} onChange={(e) => setBgMode(e.target.value)} style={{ width: "100%", marginTop: 4, ...styles.select }}>
           <option value="color">Farbig</option>
           <option value="white">Weiß</option>
           {/*<option value="transparent">Transparent</option>*/}
@@ -2911,30 +2876,21 @@ try {
 
         {shape === "freeform" ? (
           <>
-           <div style={styles.label}>Freiform-Rand (mm)</div>
-<select
-  value={String(freeformBorderMm)}
-  onChange={(e) => {
-    const v = Number(String(e.target.value).replace(",", "."));
-    setFreeformBorderMm(Number.isFinite(v) ? v : 3);
-  }}
-  style={{ width: "100%", marginTop: 4, ...styles.select }}
->
-  {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((mm) => (
-    <option key={`ffb-${mm}`} value={String(mm)}>
-      {mm.toFixed(1)} mm
-    </option>
-  ))}
-</select>
-
-            {/*<div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>{borderDraftMm.toFixed(1)} mm</div>
-
-            <div style={{ fontSize: 12, opacity: 0.75, marginTop: 10 }}>
-              Billing-Box (effektiv):{" "}
-              <b>
-                {fmtCm(effWcm)} × {fmtCm(effHcm)} cm
-              </b>
-            </div>*/}
+            <div style={styles.label}>Freiform-Rand (mm)</div>
+            <select
+              value={String(freeformBorderMm)}
+              onChange={(e) => {
+                const v = Number(String(e.target.value).replace(",", "."));
+                setFreeformBorderMm(Number.isFinite(v) ? v : 3);
+              }}
+              style={{ width: "100%", marginTop: 4, ...styles.select }}
+            >
+              {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((mm) => (
+                <option key={`ffb-${mm}`} value={String(mm)}>
+                  {mm.toFixed(1)} mm
+                </option>
+              ))}
+            </select>
           </>
         ) : null}
 
@@ -2950,10 +2906,6 @@ try {
           <div style={styles.statValue}>{`${priceTotal.toFixed(2)} €`}</div>
         </div>
 
-        {/*<div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-          Variante: <b>{selectedVariantTitle || "—"}</b>
-        </div>*/}
-
         <div style={styles.divider} />
 
         <input
@@ -2964,9 +2916,12 @@ try {
           onChange={(e) => uploadFile(e.target.files?.[0])}
         />
 
-        <button type="button" style={styles.secondaryBtn} onClick={() => fileInputRef.current?.click()}>
-          {uploading ? "Upload…" : imageUrl ? "Bild ändern" : "Bild hochladen"}
-        </button>
+        {/* ✅ Patch: Linker Upload-Button nur noch als "Bild ändern" anzeigen, wenn bereits ein Bild existiert */}
+        {imageUrl ? (
+          <button type="button" style={styles.secondaryBtn} onClick={openFilePicker}>
+            {uploading ? "Upload…" : "Bild ändern"}
+          </button>
+        ) : null}
 
         <label
           style={{
@@ -2982,9 +2937,7 @@ try {
           Nach dem Hinzufügen zum Warenkorb wechseln
         </label>
 
-        {addedMsg ? (
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9, color: "rgba(255,255,255,0.85)" }}>{addedMsg}</div>
-        ) : null}
+        {addedMsg ? <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9, color: "rgba(255,255,255,0.85)" }}>{addedMsg}</div> : null}
 
         <button type="button" style={styles.primaryBtn} onClick={addToCart} disabled={!imageUrl}>
           In den Warenkorb
@@ -2999,7 +2952,16 @@ try {
 
       <div style={{ ...styles.rightPanel, background: previewBg }}>
         {!imageUrl ? (
-          <div style={styles.emptyHint}>Bitte links ein Bild hochladen.</div>
+          /* ✅ Patch: Upload-CTA im Preview-Bereich (oben) */
+          <div style={styles.emptyUploadWrap}>
+            <div style={styles.emptyHint}>Bitte links ein Bild hochladen.</div>
+
+            <button type="button" style={styles.uploadHeroBtn} onClick={openFilePicker} disabled={uploading}>
+              {uploading ? "Upload…" : "Bild hochladen"}
+            </button>
+
+            <div style={styles.emptySubHint}>Tipp: PNG mit transparentem Hintergrund funktioniert am besten.</div>
+          </div>
         ) : (
           <div style={previewFrameStyle}>
             {shape === "freeform" ? (
@@ -3032,12 +2994,7 @@ try {
                     crossOrigin="anonymous"
                   />
                 ) : shape === "oval" || shape === "oval_portrait" ? (
-                  <img
-                    src={imageUrl}
-                    alt="Sticker"
-                    style={{ ...ovalImgBoxStyle, objectFit: "contain", background: "transparent" }}
-                    crossOrigin="anonymous"
-                  />
+                  <img src={imageUrl} alt="Sticker" style={{ ...ovalImgBoxStyle, objectFit: "contain", background: "transparent" }} crossOrigin="anonymous" />
                 ) : (
                   <img
                     src={imageUrl}
@@ -3145,6 +3102,36 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer",
   },
+
+  /* ✅ Patch: Empty-State Block im Preview-Bereich */
+  emptyUploadWrap: {
+    width: "100%",
+    maxWidth: 520,
+    display: "grid",
+    gap: 12,
+    justifyItems: "center",
+    alignContent: "center",
+    textAlign: "center",
+    padding: 18,
+  },
+  uploadHeroBtn: {
+    width: "100%",
+    maxWidth: 520,
+    padding: "12px 14px",
+    borderRadius: 999,
+    border: "none",
+    background: "#e10600",
+    color: "#fff",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  emptySubHint: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 12,
+    maxWidth: 520,
+    lineHeight: 1.35,
+  },
+
   errorBox: {
     marginTop: 12,
     padding: 10,
