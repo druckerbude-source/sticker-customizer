@@ -133,7 +133,7 @@
 }
 
 /* =========================================================
-   ✅ GLOBAL LAYOUT: Preview oben, Optionen unten (Mobile/Standard)
+   ✅ GLOBAL LAYOUT: Preview oben, Optionen unten
    ========================================================= */
 .sticker-embed-react-root > * {
   display: grid !important;
@@ -206,45 +206,7 @@
 }
 
 /* =========================================================
-   ✅ VORANGEGANGENER PATCH (Desktop): linke Spalte 1/4, rechte Spalte 3/4
-   - Auf großen Screens NICHT als Bottom-Sheet,
-     sondern als 2-Spalten Layout: Controls links, Preview rechts
-   ========================================================= */
-@media (min-width: 980px) {
-  .sticker-embed-react-root > * {
-    grid-template-columns: 1fr 3fr !important; /* 1/4 : 3/4 */
-    grid-template-rows: 1fr !important;
-    align-items: stretch !important;
-  }
-
-  /* Controls links */
-  .sticker-embed-react-root > * > *:nth-child(1) {
-    grid-column: 1;
-    grid-row: 1;
-
-    border-top: 0;
-    border-right: 1px solid rgba(255,255,255,0.08);
-
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
-
-    background: rgba(10, 14, 20, 0.92);
-    backdrop-filter: blur(10px);
-
-    padding: 18px 16px;
-  }
-
-  /* Preview rechts */
-  .sticker-embed-react-root > * > *:nth-child(2) {
-    grid-column: 2;
-    grid-row: 1;
-
-    padding: 22px;
-  }
-}
-
-/* =========================================================
-   Feintuning: Große Screens -> Sheet kleiner (Mobile/Tablet)
+   Feintuning: Große Screens -> Sheet kleiner
    ========================================================= */
 @media (min-width: 1200px) {
   .sticker-embed-react-root > * {
