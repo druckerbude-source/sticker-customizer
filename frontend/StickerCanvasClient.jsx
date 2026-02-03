@@ -2772,7 +2772,6 @@ export default function StickerCanvasClient({
   return (
     <div style={styles.wrapper}>
       <div style={styles.leftPanel}>
-        <div style={styles.sectionTitle}>Form & Größe</div>
 
         <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
           <label>
@@ -2806,7 +2805,7 @@ export default function StickerCanvasClient({
           {shape === "freeform" ? (
             <>
               <label>
-                Größe (Proportion bleibt erhalten)
+                Größe
                 <select
                   value={String(freeformLongSideCm)}
                   onChange={(e) => {
@@ -2830,12 +2829,12 @@ export default function StickerCanvasClient({
                 </select>
               </label>
 
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+              {/*<div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
                 Effektiv (Abrechnung):{" "}
                 <b>
                   {fmtCm(effWcm)} × {fmtCm(effHcm)} cm
                 </b>
-              </div>
+              </div>*/}
             </>
           ) : (
             <label>
@@ -2867,13 +2866,6 @@ export default function StickerCanvasClient({
           {/*<option value="transparent">Transparent</option>*/}
         </select>
 
-        {bgMode === "color" ? (
-          <>
-            <div style={styles.label}>Hintergrundfarbe</div>
-            <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} style={styles.color} />
-          </>
-        ) : null}
-
         {shape === "freeform" ? (
           <>
             <div style={styles.label}>Freiform-Rand (mm)</div>
@@ -2893,6 +2885,15 @@ export default function StickerCanvasClient({
             </select>
           </>
         ) : null}
+        
+        {bgMode === "color" ? (
+          <>
+            <div style={styles.label}>Hintergrundfarbe</div>
+            <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} style={styles.color} />
+          </>
+        ) : null}
+
+        
 
         <div style={styles.divider} />
 
@@ -2943,9 +2944,9 @@ export default function StickerCanvasClient({
           In den Warenkorb
         </button>
 
-        <button type="button" style={styles.secondaryBtn} onClick={exportSvg} disabled={!imageUrl || exporting}>
+        {/*<button type="button" style={styles.secondaryBtn} onClick={exportSvg} disabled={!imageUrl || exporting}>
           {exporting ? "Export…" : "SVG & PDF exportieren"}
-        </button>
+        </button>*/}
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
       </div>
