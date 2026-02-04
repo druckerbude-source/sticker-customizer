@@ -246,3 +246,105 @@
 .sticker-embed-react-root input[type="number"] {
   -moz-appearance: textfield;
 }
+/* =========================================================
+   ✅ Layout-Fix: Preview kleiner, Controls ohne Scrollbar
+   Ziel: alle Optionen im sichtbaren Bereich (ohne Scroll)
+   ========================================================= */
+
+/* 1) Modal/Root: volle Höhe, kein unnötiges Overflow */
+.sticker-configurator-modal,
+.sc-modal,
+.sc-modalRoot {
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+}
+
+/* 2) Innerer Wrapper: Grid in 2 Reihen (Preview oben, Controls unten) */
+.sticker-configurator-modal .sc-layout,
+.sc-modal .sc-layout,
+.sc-modalRoot .sc-layout,
+.sticker-configurator-modal .sc-inner,
+.sc-modal .sc-inner,
+.sc-modalRoot .sc-inner {
+  height: 100%;
+  max-height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr; /* Preview auto (gedeckelt), Controls bekommen Rest */
+  overflow: hidden;
+}
+
+/* 3) Preview-Container: Höhe deckeln (damit unten genug Platz bleibt) */
+.sticker-configurator-modal .sc-preview,
+.sc-modal .sc-preview,
+.sc-modalRoot .sc-preview,
+.sticker-configurator-modal .sc-previewWrap,
+.sc-modal .sc-previewWrap,
+.sc-modalRoot .sc-previewWrap {
+  /* Preview soll sichtbar sein, aber nicht den Screen fressen */
+  height: clamp(180px, 28vh, 320px);
+  max-height: clamp(180px, 28vh, 320px);
+  overflow: hidden;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  padding: 10px 12px;
+}
+
+/* Falls dein Canvas/Preview sich über width/max-height verzerrt:
+   wir setzen eine klare Begrenzung */
+.sticker-configurator-modal .sc-preview canvas,
+.sc-modal .sc-preview canvas,
+.sc-modalRoot .sc-preview canvas,
+.sticker-configurator-modal .sc-preview img,
+.sc-modal .sc-preview img,
+.sc-modalRoot .sc-preview img,
+.sticker-configurator-modal .sc-preview svg,
+.sc-modal .sc-preview svg,
+.sc-modalRoot .sc-preview svg {
+  max-height: 100%;
+  max-width: 100%;
+  height: auto;
+  width: auto;
+}
+
+/* 4) Controls/Options: kein Scroll (und kompakter) */
+.sticker-configurator-modal .sc-controls,
+.sc-modal .sc-controls,
+.sc-modalRoot .sc-controls,
+.sticker-configurator-modal .sc-panel,
+.sc-modal .sc-panel,
+.sc-modalRoot .sc-panel {
+  overflow: hidden;          /* <- Scrollbar verhindern */
+  min-height: 0;             /* wichtig für Grid-Kinder */
+  padding: 10px 12px;
+}
+
+/* 5) Fields enger packen, damit alles reinpasst */
+.sc-field { gap: 6px; }
+.sc-label { font-size: 12.5px; }
+.sc-tileGrid { gap: 8px; }
+.sc-tile { padding: 8px 8px; min-height: 52px; }
+
+/* 6) Mobile: Preview noch kleiner, damit Controls definitiv passen */
+@media (max-width: 720px) {
+  .sticker-configurator-modal .sc-preview,
+  .sc-modal .sc-preview,
+  .sc-modalRoot .sc-preview,
+  .sticker-configurator-modal .sc-previewWrap,
+  .sc-modal .sc-previewWrap,
+  .sc-modalRoot .sc-previewWrap {
+    height: clamp(150px, 24vh, 260px);
+    max-height: clamp(150px, 24vh, 260px);
+    padding: 8px 10px;
+  }
+
+  .sticker-configurator-modal .sc-controls,
+  .sc-modal .sc-controls,
+  .sc-modalRoot .sc-controls,
+  .sticker-configurator-modal .sc-panel,
+  .sc-modal .sc-panel,
+  .sc-modalRoot .sc-panel {
+    padding: 8px 10px;
+  }
+}
