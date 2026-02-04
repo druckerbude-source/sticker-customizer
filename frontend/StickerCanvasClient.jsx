@@ -42,13 +42,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
  * ✅ Neu (UI Patch):
  * - Upload-Button wird im rechten Preview-Bereich angezeigt, genau dort wo "Bitte links ein Bild hochladen." steht.
  * - Linker Upload-Button bleibt als "Bild ändern" sichtbar, wenn bereits ein Bild vorhanden ist (kein Doppel-CTA).
- *
- * ✅ Neu (DEIN WUNSCH - Responsive Layout):
- * - Desktop: Konfiguration links, Preview rechts
- * - Mobile: Preview oben, Konfiguration darunter
- *
- * ✅ Fix:
- * - Syntaxfehler bei setRealPieces(...) korrigiert
  */
 
 //
@@ -1252,23 +1245,6 @@ export default function StickerCanvasClient({
   const lastExportKeyRef = useRef("");
   const lastExportSvgUrlRef = useRef("");
 
-  // ✅ Viewport (für stabile Preview-Box in px)
-  const [vp, setVp] = useState(() => ({
-    w: typeof window !== "undefined" ? window.innerWidth : 1200,
-    h: typeof window !== "undefined" ? window.innerHeight : 800,
-  }));
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
-    onResize();
-    window.addEventListener("resize", onResize, { passive: true });
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  // ✅ Responsive Breakpoint: Mobile = Konfiguration unter Preview
-  const isMobile = vp.w <= 860;
-
   function buildExportKeyForCart() {
     // Key muss alle Parameter enthalten, die das Ergebnis beeinflussen
     return [
@@ -1457,6 +1433,20 @@ export default function StickerCanvasClient({
 
     return data.svgUrl;
   }
+
+  // ✅ Viewport (für stabile Preview-Box in px)
+  const [vp, setVp] = useState(() => ({
+    w: typeof window !== "undefined" ? window.innerWidth : 1200,
+    h: typeof window !== "undefined" ? window.innerHeight : 800,
+  }));
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    onResize();
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // ✅ helper: "aktive" Maße für Berechnung/Matching/Export/Cart
   // Freiform: Mindestkante (40mm) erzwingen
@@ -2439,11 +2429,12 @@ export default function StickerCanvasClient({
     }
   }
 
+  // ✅✅ Stückzahl: bevorzugt aus Katalog, sonst Fallback-Berechnung
   useEffect(() => {
     // 1) Wenn Katalogwert existiert: den verwenden
     const fromCatalog = selectedSizeObj?.piecesPerSet;
     if (Number.isFinite(fromCatalog) && fromCatalog > 0) {
-      // ✅ FIX: Syntaxfehler korrigiert
+      // ✅ FIX: kaputte Arrow-Funktion repariert
       setRealPieces((prev) => (prev === fromCatalog ? prev : fromCatalog));
       return;
     }
@@ -2641,7 +2632,6 @@ export default function StickerCanvasClient({
 
   const showTransparentMark = useMemo(() => bgMode === "transparent", [bgMode]);
   const TRANSPARENT_UI_SHADE = "rgba(255,255,255,0.06)";
-  const TRANSPARENT_UI_OUTLINE = "rgba(255,255,255,0.35)";
 
   // ==============================
   // UI Preview styles
@@ -2781,8 +2771,8 @@ export default function StickerCanvasClient({
   // Render
   // ==============================
   return (
-    <div style={{ ...styles.wrapper, ...(isMobile ? styles.wrapperMobile : styles.wrapperDesktop) }}>
-      <div style={{ ...styles.leftPanel, ...(isMobile ? styles.leftPanelMobile : styles.leftPanelDesktop) }}>
+    <div style={styles.wrapper}>
+      <div style={styles.leftPanel}>
         <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
           <label>
             Form
@@ -2939,12 +2929,18 @@ export default function StickerCanvasClient({
             marginTop: 10,
           }}
         >
-          <input type="checkbox" checked={goToCartAfterAdd} onChange={(e) => setGoToCartAfterAdd(!!e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={goToCartAfterAdd}
+            onChange={(e) => setGoToCartAfterAdd(!!e.target.checked)}
+          />
           Nach dem Hinzufügen zum Warenkorb wechseln
         </label>
 
         {addedMsg ? (
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9, color: "rgba(255,255,255,0.85)" }}>{addedMsg}</div>
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9, color: "rgba(255,255,255,0.85)" }}>
+            {addedMsg}
+          </div>
         ) : null}
 
         <button type="button" style={styles.primaryBtn} onClick={addToCart} disabled={!imageUrl}>
@@ -2958,7 +2954,7 @@ export default function StickerCanvasClient({
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
       </div>
 
-      <div style={{ ...styles.rightPanel, background: previewBg, ...(isMobile ? styles.rightPanelMobile : styles.rightPanelDesktop) }}>
+      <div style={{ ...styles.rightPanel, background: previewBg }}>
         {!imageUrl ? (
           /* ✅ Patch: Upload-CTA im Preview-Bereich (oben) */
           <div style={styles.emptyUploadWrap}>
@@ -3036,61 +3032,27 @@ const styles = {
     width: "100%",
     maxWidth: 980,
     margin: "0 auto",
+    display: "grid",
+    gridTemplateColumns: "260px 1fr",
     gap: 0,
     borderRadius: 22,
     overflow: "hidden",
     boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
     background: "#0b0f16",
   },
-
-  // ✅ Desktop: Grid links/rechts
-  wrapperDesktop: {
-    display: "grid",
-    gridTemplateColumns: "260px 1fr",
-  },
-
-  // ✅ Mobile: Preview oben, Controls darunter
-  wrapperMobile: {
-    display: "flex",
-    flexDirection: "column",
-  },
-
   leftPanel: {
     padding: 18,
     background: "#0b0f16",
     color: "#fff",
-  },
-
-  leftPanelDesktop: {
-    order: 1,
     borderRight: "1px solid rgba(255,255,255,0.08)",
-    borderTop: "none",
   },
-
-  leftPanelMobile: {
-    order: 2,
-    borderRight: "none",
-    borderTop: "1px solid rgba(255,255,255,0.08)",
-  },
-
   rightPanel: {
+    minHeight: 520,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
   },
-
-  rightPanelDesktop: {
-    order: 2,
-    minHeight: 520,
-  },
-
-  rightPanelMobile: {
-    order: 1,
-    minHeight: 420,
-    padding: 16,
-  },
-
   sectionTitle: { fontSize: 14, opacity: 0.9, marginBottom: 6 },
   label: { fontSize: 13, opacity: 0.85, marginTop: 14, marginBottom: 6 },
   select: {
