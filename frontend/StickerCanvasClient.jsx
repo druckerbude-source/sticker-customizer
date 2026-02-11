@@ -4,83 +4,45 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
  * StickerCanvasClient.jsx
  * - Self-contained (no relative imports)
  *
- * ✅ Fix (dieser Patch):
- * - Verhindert verzerrte Darstellung durch CSS-Kombination aus width + maxHeight + aspectRatio
- * - Preview-Fläche wird in px berechnet (fit-to-viewport) und setzt width+height explizit
- * - Quadrat bleibt Quadrat, Rechteck bleibt Rechteck, Freiform nutzt Billing-Box AR stabil
+ * ✅ Layout/CSS Refactor (dieser Patch):
+ * - Responsive Layout via CSS (Desktop: 40/60, Mobile: oben Preview, unten Konfigurator)
+ * - Preview koppelt sich automatisch an die rechte Panel-Breite (ResizeObserver)
+ * - Inline-Styles weitgehend entfernt → saubere CSS-Klassen + CSS-Variablen für dynamische Maße
+ * - Mobile optimiert (größere Touch-Ziele, sinnvollere Abstände, Preview-Höhe, Panels ohne starre minHeight)
  *
- * ✅ Neu (dieser Patch):
- * - 3 zusätzliche Formen als "gedrehte" Varianten ohne doppelten Katalog:
- *   - rect_landscape  (Rechteck Quer) -> nutzt rect, Maße/Label gedreht
- *   - rect_landscape_rounded (Rechteck Quer Abgerundet) -> nutzt rect_rounded, Maße/Label gedreht
- *   - oval_portrait (Oval stehend) -> nutzt oval, Maße/Label gedreht
- *
- * ✅ Neu (Transparenz-Preview Patch):
- * - Editor-Hintergrund bleibt unberührt
- * - Transparenz-Schachbrett wird NUR innerhalb der Sticker-Fläche gezeigt
- *   - feste Formen: direkt im Shape-Container (OK, Container == Stickerfläche)
- *   - Freiform: Schachbrett wird per CSS-Mask auf die tatsächliche Freiform-Kontur begrenzt
- *
- * ✅ Neu (DEIN WUNSCH):
- * - Freiform: freie Größenwahl (cm) statt fixer Größen-Auswahl im Dropdown
- * - Abrechnung/Variante wird automatisch auf die kleinste passende Kataloggröße aufgerundet (ceil)
- * - sizeKey/variantId bleiben für Warenkorb & Backend erhalten (auto gesetzt)
- *
- * ✅ Neu (Mindestkante):
- * - Freiform: kleinste Kante mindestens 40 mm (4 cm) – wird automatisch proportional hochskaliert
- * - Dieses Maß kann nicht unterschritten werden (wirksame Maße effWcm/effHcm sind immer >= 4 cm Mindestkante)
- *
- * ✅ Neu (Proportionen fix):
- * - Freiform: Billing-Box Proportionen werden an die ORIGINAL-Sticker-Proportion (aus der Mask-BoundingBox) gebunden
- * - Wenn der User Breite ODER Höhe ändert, wird die andere Dimension automatisch passend nachgezogen (kein Verzerren)
- * - Fallback: falls Maske noch nicht verfügbar, wird imgAspect genutzt
- *
- * ✅ Neu (Freiräume schließen / füllen):
- * - Freiform: kleine Lücken/Schlitze zwischen Konturen werden vor Floodfill geschlossen (Mask-Closing)
- * - Dadurch entstehen keine unerwünschten "Freiräume" in der Freiform-Fläche (Screenshot 1 -> 2)
- *
- * ✅ Neu (UI Patch):
- * - Upload-Button wird im rechten Preview-Bereich angezeigt, genau dort wo "Bitte links ein Bild hochladen." steht.
- * - Linker Upload-Button bleibt als "Bild ändern" sichtbar, wenn bereits ein Bild vorhanden ist (kein Doppel-CTA).
+ * Hinweis:
+ * - Einige wenige dynamische Styles bleiben als CSS-Variablen (Breite/Höhe der Preview, Mask-Image URL etc.).
  */
 
-//
 // ==============================
 // Konfiguration
 // ==============================
 const PRINT_LENGTH_CM = 130;
 
-// ✅ Mindestkante: 40 mm
+// Mindestkante: 40 mm
 const MIN_EDGE_MM = 40;
 const MIN_EDGE_CM = MIN_EDGE_MM / 10;
 
-// ✅ Freiform Größen-Presets (lange Kante in cm) – iOS-sicher via Dropdown
+// Freiform Größen-Presets (lange Kante in cm)
 const FREEFORM_LONGSIDE_PRESETS_CM = [4, 5, 6, 7, 8, 9, 10, 12, 15, 20];
 
 // Freeform Preview-Engine
 const PX_PER_CM = 100;
 const EXPORT_DPI = 300;
-const WARN_DPI = 240;
 const MIN_DPI = 180;
 
 const SQRT2 = Math.SQRT2;
 const FREEFORM_MASTER_LONG_SIDE = 1200;
 const FREEFORM_PREVIEW_MAX_SIDE = 1100;
 
-// ✅ schließt kleine "Freiräume" / Schlitze zwischen Konturen (Mask Closing)
-// höher = mehr wird zugeschmiert; 2–4 ist meist gut
+// schließt kleine "Freiräume" / Schlitze zwischen Konturen (Mask Closing)
 const FREEFORM_SEAL_GAPS_PX = 3;
 
 // Rounded Export
 const ROUNDED_PAD_PX = 28;
-const ROUNDED_RADIUS_MM = (ROUNDED_PAD_PX / PX_PER_CM) * 10; // 28px -> 2.8mm
+const ROUNDED_RADIUS_MM = (ROUNDED_PAD_PX / PX_PER_CM) * 10;
 
-// ✅ Preview-Box Begrenzung
-const PREVIEW_MAX_PX = 520;
-const PREVIEW_MAX_VW_FACTOR = 0.70;
-const PREVIEW_MAX_VH_FACTOR = 0.60;
-
-// UI Colorways (Fallback, falls loader nur "sizes" liefert)
+// UI Colorways (Fallback)
 const FALLBACK_COLORWAYS = [
   { colorKey: "white", label: "Weiß" },
   { colorKey: "transparent", label: "Transparent" },
@@ -132,7 +94,7 @@ function calcEffectiveDpi({ imgPxW, imgPxH, targetCmW, targetCmH }) {
 }
 
 function getMajorForPieces(shape, wCm, hCm) {
-  if (shape === "round") return Math.max(1e-9, Number(wCm) || 0); // Durchmesser
+  if (shape === "round") return Math.max(1e-9, Number(wCm) || 0);
   return Math.max(1e-9, Math.max(Number(wCm) || 0, Number(hCm) || 0));
 }
 
@@ -191,36 +153,10 @@ function approxEq(a, b, eps = 0.051) {
   return Math.abs(x - y) <= eps;
 }
 
-function findBestVariantIdForSize({ shape, wCm, hCm }, variants) {
-  const w = Math.min(Number(wCm) || 0, Number(hCm) || 0);
-  const h = Math.max(Number(wCm) || 0, Number(hCm) || 0);
-  const d = Number(wCm) || 0;
-
-  if (!Array.isArray(variants) || variants.length === 0) return null;
-
-  for (const v of variants) {
-    const p = parseDimsFromVariantText(v?.title || v?.name || "");
-    if (!p) continue;
-
-    if (shape === "round") {
-      if (p.kind === "round" && approxEq(p.dCm, d)) return v.id;
-      if (p.kind === "single" && approxEq(p.nCm, d)) return v.id;
-    } else {
-      if (p.kind === "rect" && approxEq(p.wCm, w) && approxEq(p.hCm, h)) return v.id;
-      if (p.kind === "single") {
-        const major = Math.max(w, h);
-        if (approxEq(p.nCm, major)) return v.id;
-      }
-    }
-  }
-  return null;
-}
-
-// ✅ Variant-Matching: Farbe + Größe (für Shopify-Varianten mit Optionen, z. B. "White / 4x4 cm")
+// ✅ Variant-Matching: Farbe + Größe
 const COLOR_SYNONYMS = {
   white: ["white", "weiß", "weiss"],
   transparent: ["transparent", "klar"],
-  // ⚠️ bewusst NICHT: "color"/"colour" (zu generisch, matched sonst fast alles)
   colored: ["farbig", "colored", "vollfarbe", "4c"],
 };
 
@@ -235,14 +171,10 @@ function variantMatchesColor(v, colorKey) {
     .map(normText)
     .filter(Boolean);
 
-  // ✅ "color/colour" nur als exakter Optionswert akzeptieren (nicht als substring im Titel)
   if (key === "colored" && opts.some((o) => o === "color" || o === "colour")) return true;
 
   const words = COLOR_SYNONYMS[key] || [key];
-
-  // Für die restlichen Wörter: Optionen + Titel zusammen als Suchraum
   const hay = [...opts, normText(v?.title)].filter(Boolean).join(" / ");
-
   return words.some((w) => hay.includes(String(w).toLowerCase()));
 }
 
@@ -263,7 +195,6 @@ function variantMatchesDims(shape, wCm, hCm, parsed) {
 
   const s = String(shape || "").toLowerCase();
 
-  // Rund/oval: oft als "Ø 4 cm" oder "4 x 4 cm" geführt
   if (s === "round") {
     const d = Math.max(w, h);
     if (parsed.kind === "single" && approxEq(parsed.nCm, d)) return true;
@@ -271,7 +202,6 @@ function variantMatchesDims(shape, wCm, hCm, parsed) {
     return false;
   }
 
-  // Andere: rechteckig/quadratisch (Rotation tolerieren)
   if (parsed.kind === "rect") {
     if (approxEq(parsed.wCm, w) && approxEq(parsed.hCm, h)) return true;
     if (approxEq(parsed.wCm, h) && approxEq(parsed.hCm, w)) return true;
@@ -299,11 +229,10 @@ function findVariantIdForColorAndSize({ shape, wCm, hCm, colorKey }, variants) {
     const id = Number(v?.id) || 0;
     if (id) return id;
   }
-
   return null;
 }
 
-// ✅ Mindestkante: kleinste Seite >= minCm (proportional hochskalieren)
+// Mindestkante
 function enforceMinEdgeCm(wCm, hCm, minCm = MIN_EDGE_CM) {
   let w = Number(wCm) || 0;
   let h = Number(hCm) || 0;
@@ -319,7 +248,6 @@ function enforceMinEdgeCm(wCm, hCm, minCm = MIN_EDGE_CM) {
   return { wCm: w * k, hCm: h * k, scaled: true, k };
 }
 
-// ✅ Freiform: Proportionen fixieren (eine Dimension kommt vom User, die andere folgt)
 function enforceAspectWithMinEdge({
   wCm,
   hCm,
@@ -337,7 +265,6 @@ function enforceAspectWithMinEdge({
   if (!Number.isFinite(w)) w = minEdgeCm;
   if (!Number.isFinite(h)) h = minEdgeCm;
 
-  // Nachziehen nach editierter Dimension
   if (edited === "h") {
     h = clampNum(h, minEdgeCm, maxEdgeCm);
     w = h * safeAr;
@@ -346,7 +273,6 @@ function enforceAspectWithMinEdge({
     h = w / safeAr;
   }
 
-  // Clamp max (wenn eine Seite > max, proportional zurück)
   const maxSide = Math.max(w, h);
   if (maxSide > maxEdgeCm) {
     const k = maxEdgeCm / Math.max(1e-9, maxSide);
@@ -354,19 +280,16 @@ function enforceAspectWithMinEdge({
     h *= k;
   }
 
-  // Mindestkante erzwingen (proportional hoch)
   const r = enforceMinEdgeCm(w, h, minEdgeCm);
   w = r.wCm;
   h = r.hCm;
 
-  // final clamp
   w = clampNum(w, minEdgeCm, maxEdgeCm);
   h = clampNum(h, minEdgeCm, maxEdgeCm);
 
   return { wCm: w, hCm: h, ar: safeAr };
 }
 
-// ✅ Freiform: freie Eingabe -> kleinste passende Abrechnungsgröße aus Katalog wählen (ceil)
 function pickBillingSizeForFreeform(userWcm, userHcm, sizes) {
   const w = Math.max(0, Number(userWcm) || 0);
   const h = Math.max(0, Number(userHcm) || 0);
@@ -379,7 +302,7 @@ function pickBillingSizeForFreeform(userWcm, userHcm, sizes) {
     if (!Number.isFinite(sw) || !Number.isFinite(sh) || sw <= 0 || sh <= 0) continue;
 
     const fitA = w <= sw && h <= sh;
-    const fitB = w <= sh && h <= sw; // Rotation erlauben (Abrechnung)
+    const fitB = w <= sh && h <= sw;
     if (fitA || fitB) {
       fits.push({ ...s, _area: sw * sh, _max: Math.max(sw, sh) });
     }
@@ -390,7 +313,6 @@ function pickBillingSizeForFreeform(userWcm, userHcm, sizes) {
     return fits[0];
   }
 
-  // wenn nichts passt: größte nehmen (damit zumindest eine VariantId existiert)
   const sorted = [...sizes]
     .map((s) => {
       const sw = Number(s?.wCm ?? s?.widthCm);
@@ -401,7 +323,6 @@ function pickBillingSizeForFreeform(userWcm, userHcm, sizes) {
   return sorted[0] || null;
 }
 
-// ✅ Freiform: Bild-Aspekt in Billing-Box "contain" fitten
 function fitAspectIntoBox(boxW, boxH, aspectWdivH) {
   const bw = Math.max(1e-9, Number(boxW) || 1);
   const bh = Math.max(1e-9, Number(boxH) || 1);
@@ -454,11 +375,9 @@ function getShapeHandleMap() {
   if (ds.handleOval) out.oval = ds.handleOval;
   if (ds.handleFreeform) out.freeform = ds.handleFreeform;
 
-  // ✅ neu: getrennte Handles für abgerundet
   if (ds.handleSquareRounded) out.square_rounded = ds.handleSquareRounded;
   if (ds.handleRectRounded) out.rect_rounded = ds.handleRectRounded;
 
-  // ✅ optional: eigene Handles für gedrehte Formen
   if (ds.handleRectLandscape) out.rect_landscape = ds.handleRectLandscape;
   if (ds.handleRectLandscapeRounded) out.rect_landscape_rounded = ds.handleRectLandscapeRounded;
   if (ds.handleOvalPortrait) out.oval_portrait = ds.handleOvalPortrait;
@@ -478,27 +397,20 @@ function guessCurrentProductHandle() {
   return "";
 }
 
-// ✅ Embedded-App Support:
-// In Shopify Admin iframe the origin is NOT the storefront domain.
-// For price/variant lookups we try to discover the shop domain from common sources.
 function guessShopDomain() {
   try {
     if (typeof window === "undefined") return "";
 
-    // 1) Explicit global
     if (window.__SHOP_DOMAIN__) return String(window.__SHOP_DOMAIN__);
 
-    // 2) Root dataset
     const el = getStickerRootEl();
     const ds = el?.dataset || {};
     if (ds.shopDomain) return String(ds.shopDomain);
 
-    // 3) URL query (?shop=...)
     const sp = new URLSearchParams(String(window.location?.search || ""));
     const qShop = sp.get("shop");
     if (qShop) return String(qShop);
 
-    // 4) App Bridge sometimes exposes shop
     const wShop = window?.Shopify?.shop;
     if (wShop) return String(wShop);
   } catch {}
@@ -509,22 +421,17 @@ function guessShopDomain() {
 function normalizeShopDomain(shop) {
   const s = String(shop || "").trim();
   if (!s) return "";
-  // strip protocol
   const noProto = s.replace(/^https?:\/\//i, "").replace(/\/$/, "");
-  // keep only hostname-ish
   const host = noProto.split("/")[0];
-  // very soft validation
   if (!host.includes(".")) return "";
   return host;
 }
 
 function resolveApiBase() {
-  // 1) explicit override (global)
   if (typeof window !== "undefined" && window.__STICKER_API_BASE__) {
     return String(window.__STICKER_API_BASE__ || "").replace(/\/$/, "");
   }
 
-  // 2) server-injected (root element) – unterstützt sowohl Admin-root als auch Theme App Block root
   if (typeof document !== "undefined") {
     const el =
       document.getElementById("sticker-configurator-root") ||
@@ -536,7 +443,6 @@ function resolveApiBase() {
     if (base) return String(base).replace(/\/$/, "");
   }
 
-  // 3) auto-detect from current URL (works for Admin embedded apps: /apps/<handle>/...)
   try {
     const p = String(window?.location?.pathname || "");
     const m = p.match(/\/apps\/([^\/]+)(?:\/|$)/i);
@@ -545,7 +451,6 @@ function resolveApiBase() {
     if (m2 && m2[1]) return `/proxy/${m2[1]}`;
   } catch {}
 
-  // 4) fallback
   return "/apps/sticker-configurator";
 }
 
@@ -569,7 +474,6 @@ function isBlobUrl(u) {
 function normalizeUrl(u) {
   const s = String(u || "").trim();
   if (!s) return "";
-  // Shopify Storefront liefert oft protocol-relative URLs wie //cdn.shopify.com/...
   if (s.startsWith("//")) {
     const proto =
       typeof window !== "undefined" && window.location && window.location.protocol
@@ -581,7 +485,7 @@ function normalizeUrl(u) {
 }
 
 // ==============================
-// Rotated Shapes (UI-only derived from base shapes)
+// Rotated Shapes (UI-only)
 // ==============================
 const ROTATED_SHAPE_META = {
   rect_landscape: { base: "rect", rotateDims: true },
@@ -594,7 +498,6 @@ function getShapeMeta(shape) {
   return ROTATED_SHAPE_META[s] || { base: s, rotateDims: false };
 }
 
-// swaps "4 x 6 cm" -> "6 x 4 cm"
 function flipSizeLabel(label) {
   const t = String(label || "");
   const m = t.match(/(\d+(?:[.,]\d+)?)\s*[x×]\s*(\d+(?:[.,]\d+)?)(.*)$/i);
@@ -603,20 +506,6 @@ function flipSizeLabel(label) {
   const b = m[2];
   const rest = m[3] || "";
   return `${b} x ${a}${rest}`;
-}
-
-function isFixedVariantShape(s) {
-  return [
-    "square",
-    "round",
-    "rect",
-    "oval",
-    "square_rounded",
-    "rect_rounded",
-    "rect_landscape",
-    "rect_landscape_rounded",
-    "oval_portrait",
-  ].includes(String(s || "").toLowerCase());
 }
 
 function loadImage(src) {
@@ -636,7 +525,7 @@ function loadImage(src) {
 }
 
 // ==============================
-// ✅ Catalog Normalizer
+// Catalog Normalizer
 // ==============================
 function normalizeSizeRow(row) {
   const sizeKey = String(row?.sizeKey || row?.key || "").trim();
@@ -734,22 +623,48 @@ function normalizeCatalog(raw) {
 // ==============================
 // Freeform Mask/Preview Engine
 // ==============================
-
-// ✅ Morphology helpers
 function invertMask(mask) {
   const out = new Uint8Array(mask.length);
   for (let i = 0; i < mask.length; i++) out[i] = mask[i] ? 0 : 1;
   return out;
 }
 
-// Erosion über invert(dilate(invert(mask)))
+function dilateMaskExact(mask, w, h, radiusPx) {
+  const r = Math.max(0, Math.round(radiusPx || 0));
+  if (r <= 0) return mask;
+
+  const offsets = [];
+  const rr = r * r;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy <= rr) offsets.push([dx, dy]);
+    }
+  }
+
+  const out = new Uint8Array(w * h);
+
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      if (!mask[row + x]) continue;
+      for (let i = 0; i < offsets.length; i++) {
+        const nx = x + offsets[i][0];
+        const ny = y + offsets[i][1];
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        out[ny * w + nx] = 1;
+      }
+    }
+  }
+
+  return out;
+}
+
 function erodeMaskExact(mask, w, h, radiusPx) {
   const inv = invertMask(mask);
   const dil = dilateMaskExact(inv, w, h, radiusPx);
   return invertMask(dil);
 }
 
-// Closing = Dilate dann Erode (schließt schmale Lücken/Schlitze)
 function closeMaskExact(mask, w, h, radiusPx) {
   const r = Math.max(0, Math.round(radiusPx || 0));
   if (r <= 0) return mask;
@@ -758,24 +673,20 @@ function closeMaskExact(mask, w, h, radiusPx) {
   return ero;
 }
 
-// ✅ inside mask (mit optionalem Gaps-Sealing)
 function buildInsideMaskFromAlpha(imgData, w, h, alphaThreshold = 8, sealGapsPx = 0) {
   const a = imgData.data;
 
-  // 1) Opaque-Maske aus Alpha
   let opaque = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) {
     const alpha = a[i * 4 + 3];
     opaque[i] = alpha > alphaThreshold ? 1 : 0;
   }
 
-  // 2) ✅ kleine Lücken/Schlitze schließen (Mask-Closing)
   const r = Math.max(0, Math.round(sealGapsPx || 0));
   if (r > 0) {
     opaque = closeMaskExact(opaque, w, h, r);
   }
 
-  // 3) Floodfill auf "transparent" (also !opaque) von außen
   const outside = new Uint8Array(w * h);
   const qx = new Int32Array(w * h);
   const qy = new Int32Array(w * h);
@@ -827,7 +738,6 @@ function buildInsideMaskFromAlpha(imgData, w, h, alphaThreshold = 8, sealGapsPx 
     }
   }
 
-  // 4) inside = alles, was NICHT außen ist
   const inside = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) inside[i] = outside[i] ? 0 : 1;
   return inside;
@@ -851,37 +761,6 @@ function maskToAlphaCanvas(mask, w, h) {
   }
   ctx.putImageData(img, 0, 0);
   return c;
-}
-
-function dilateMaskExact(mask, w, h, radiusPx) {
-  const r = Math.max(0, Math.round(radiusPx || 0));
-  if (r <= 0) return mask;
-
-  const offsets = [];
-  const rr = r * r;
-  for (let dy = -r; dy <= r; dy++) {
-    for (let dx = -r; dx <= r; dx++) {
-      if (dx * dx + dy * dy <= rr) offsets.push([dx, dy]);
-    }
-  }
-
-  const out = new Uint8Array(w * h);
-
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    for (let x = 0; x < w; x++) {
-      if (!mask[row + x]) continue;
-
-      for (let i = 0; i < offsets.length; i++) {
-        const nx = x + offsets[i][0];
-        const ny = y + offsets[i][1];
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        out[ny * w + nx] = 1;
-      }
-    }
-  }
-
-  return out;
 }
 
 function scheduleIdle(fn, timeoutMs = 500) {
@@ -958,8 +837,6 @@ function buildFreeformMasterMask({
   mctx.drawImage(src, 0, 0, mw, mh);
 
   const mdata = mctx.getImageData(0, 0, mw, mh);
-
-  // ✅ hier: Freiräume schließen (Mask-Closing) bevor inside/outside berechnet wird
   const insideMask = buildInsideMaskFromAlpha(mdata, mw, mh, alphaThreshold, FREEFORM_SEAL_GAPS_PX);
 
   return {
@@ -995,14 +872,12 @@ function maskBBox(mask, w, h) {
   return { minX, minY, maxX, maxY };
 }
 
-// ✅ Freiform: Original-Proportion aus Mask-BBox ableiten (kein Verzerren)
 function maskAspectFromBBox(mask, w, h) {
   const bb = maskBBox(mask, w, h);
   const bw = Math.max(1, bb.maxX - bb.minX + 1);
   const bh = Math.max(1, bb.maxY - bb.minY + 1);
   const ar = bw / bh;
   if (!Number.isFinite(ar) || ar <= 1e-6) return 1;
-  // limit extremes (nur Sicherheitsnetz)
   return Math.min(10, Math.max(0.1, ar));
 }
 
@@ -1128,49 +1003,38 @@ export default function StickerCanvasClient({
   defaultBgColor = "#ffffff",
   defaultImageUrl = "",
 }) {
-  // --- Variant Catalog (from loader) ---
   const [catalog, setCatalog] = useState(null);
 
-  // Storefront-Bridge: Werte aus dem Embed an globale Resolver durchreichen (ohne UI-Änderung)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // apiBase (App-Proxy Basis)
     const b = String(apiBase || "").trim();
     if (b) window.__STICKER_API_BASE__ = b.replace(/\/$/, "");
 
-    // Shape->Handle Map
     if (shapeHandles && typeof shapeHandles === "object") {
       window.__SC_SHAPE_HANDLES__ = shapeHandles;
     }
   }, [apiBase, shapeHandles]);
 
   const [shape, setShape] = useState(String(defaultShape || "square").toLowerCase());
-
-  // ✅ meta für gedrehte Formen (base + rotate flag)
   const shapeMeta = useMemo(() => getShapeMeta(shape), [shape]);
   const baseShapeKey = String(shapeMeta?.base || shape || "").toLowerCase();
 
-  const [colorKey, setColorKey] = useState("white"); // "white" | "transparent" | "colored"
-  const [sizeKey, setSizeKey] = useState(""); // e.g. "4x4", "d4" (oder bei Freiform: Billing-Klasse auto)
+  const [colorKey, setColorKey] = useState("white");
+  const [sizeKey, setSizeKey] = useState("");
 
   const [widthCm, setWidthCm] = useState(clampNum(defaultWidthCm, 1, 300));
   const [heightCm, setHeightCm] = useState(clampNum(defaultHeightCm, 1, 300));
 
-  // Freiform: user wählt diese Maße frei (cm)
   const [billingWidthCm, setBillingWidthCm] = useState(clampNum(defaultWidthCm, 1, 300));
   const [billingHeightCm, setBillingHeightCm] = useState(clampNum(defaultHeightCm, 1, 300));
 
-  // ✅ Freiform: Original-Sticker-Aspect (aus Maske) – wird genutzt um Billing proportional zu halten
   const [freeformCutAspect, setFreeformCutAspect] = useState(1);
-  const lastFreeformEditRef = useRef("w"); // "w" | "h"
+  const lastFreeformEditRef = useRef("w");
 
-  // ✅ Freiform: Größenwahl über Dropdown (lange Kante), Proportion bleibt erhalten
   const [freeformLongSideCm, setFreeformLongSideCm] = useState(4);
 
-  const [bgMode, setBgMode] = useState("color"); // "color" | "white" | "transparent"
-
-  // ✅ bgMode (UI) -> colorKey (Catalog/Variant-Matching)
+  const [bgMode, setBgMode] = useState("color");
   useEffect(() => {
     const next = bgMode === "white" ? "white" : bgMode === "transparent" ? "transparent" : "colored";
     if (String(next) !== String(colorKey)) setColorKey(next);
@@ -1178,7 +1042,6 @@ export default function StickerCanvasClient({
   }, [bgMode]);
 
   const [bgColor, setBgColor] = useState(defaultBgColor || "#ffffff");
-
   const bgColorEff = useMemo(() => {
     if (bgMode === "white") return "#ffffff";
     if (bgMode === "transparent") return "transparent";
@@ -1186,22 +1049,17 @@ export default function StickerCanvasClient({
   }, [bgMode, bgColor]);
 
   const hasBgFill = bgMode !== "transparent";
-
   useEffect(() => {
     if (bgMode === "white") setBgColor("#ffffff");
   }, [bgMode]);
 
   const [imageUrl, setImageUrl] = useState(defaultImageUrl || "");
-
   const [uploadedUrl, setUploadedUrl] = useState(() =>
     defaultImageUrl && isProbablyRemoteUrl(defaultImageUrl) ? defaultImageUrl : ""
   );
 
   const [freeformBorderMm, setFreeformBorderMm] = useState(3);
-  const [borderDraftMm, setBorderDraftMm] = useState(3);
-  useEffect(() => setBorderDraftMm(freeformBorderMm), [freeformBorderMm]);
 
-  // Preis/Varianten
   const [productVariants, setProductVariants] = useState([]);
   const [selectedVariantId, setSelectedVariantId] = useState(() => Number(productId) || 0);
   const [selectedVariantPrice, setSelectedVariantPrice] = useState(0);
@@ -1216,14 +1074,12 @@ export default function StickerCanvasClient({
   const [addedMsg, setAddedMsg] = useState("");
   const [goToCartAfterAdd, setGoToCartAfterAdd] = useState(true);
 
-  // File refs
   const fileInputRef = useRef(null);
   const pendingFileRef = useRef(null);
   const remoteUploadPromiseRef = useRef(null);
   const uploadGenIdRef = useRef(0);
   const localPreviewUrlRef = useRef(null);
 
-  // Preview refs/state
   const [imgAspect, setImgAspect] = useState(1);
   const [freeformPreviewUrl, setFreeformPreviewUrl] = useState("");
   const [freeformPreviewAspect, setFreeformPreviewAspect] = useState(1);
@@ -1237,204 +1093,12 @@ export default function StickerCanvasClient({
   const serverPreviewReqIdRef = useRef(0);
   const lastGoodServerPreviewRef = useRef("");
 
-  // Image cache
   const imgElRef = useRef(null);
   const imgElUrlRef = useRef("");
 
-  // ✅ Cache: verhindert doppelten Export bei gleicher Konfiguration (für Add-to-Cart)
   const lastExportKeyRef = useRef("");
   const lastExportSvgUrlRef = useRef("");
 
-  function buildExportKeyForCart() {
-    // Key muss alle Parameter enthalten, die das Ergebnis beeinflussen
-    return [
-      String(imageUrl || ""),
-      String(shape || ""),
-      String(colorKey || ""),
-      String(sizeKey || ""),
-      String(bgMode || ""),
-      String(bgColorEff || ""),
-      String(freeformBorderMm || ""),
-      String(effWcm || ""),
-      String(effHcm || ""),
-      String(widthCm || ""),
-      String(heightCm || ""),
-    ].join("|");
-  }
-
-  async function ensureSvgExportForCart(remoteUrlForExport) {
-    const exportKey = buildExportKeyForCart();
-
-    // ✅ Wenn unverändert, cached URL verwenden
-    if (lastExportKeyRef.current === exportKey && lastExportSvgUrlRef.current) {
-      return lastExportSvgUrlRef.current;
-    }
-
-    const url = api("/sticker/export");
-
-    // Bild laden (wie in deiner exportSvg())
-    const shared = imgElUrlRef.current === imageUrl ? imgElRef.current : null;
-    const img = shared || (await loadImage(imageUrl));
-
-    const effectiveDpi = calcEffectiveDpi({
-      imgPxW: img.naturalWidth || img.width || 0,
-      imgPxH: img.naturalHeight || img.height || 0,
-      targetCmW: effWcm,
-      targetCmH: effHcm,
-    });
-
-    if (effectiveDpi < MIN_DPI) {
-      throw new Error(
-        `Bildauflösung zu gering (${Math.round(effectiveDpi)} DPI). Minimum: ${MIN_DPI} DPI. ` +
-          `Bitte ein größeres Bild hochladen oder Sticker kleiner wählen.`
-      );
-    }
-
-    const baseWidthPx = cmToPxAtDpi(effWcm, EXPORT_DPI);
-    const baseHeightPx = cmToPxAtDpi(effHcm, EXPORT_DPI);
-
-    const isRound = shape === "round";
-    const isOval = shape === "oval" || shape === "oval_portrait";
-    const isSquare = shape === "square";
-    const isSquareRounded = shape === "square_rounded";
-    const isRectRounded = shape === "rect_rounded" || shape === "rect_landscape_rounded";
-    const isRounded = isSquareRounded || isRectRounded;
-
-    const pad = isRounded ? mmToPxAtDpi(ROUNDED_RADIUS_MM, EXPORT_DPI) : 0;
-    const needsBgFill = (isRound || isOval || isSquare || isRounded) && hasBgFill;
-
-    const exportSizePx = isRound ? Math.max(1, Math.round(diagonalFromRect(baseWidthPx, baseHeightPx))) : null;
-    const exportOvalW = isOval ? Math.max(1, Math.round(baseWidthPx * SQRT2)) : null;
-    const exportOvalH = isOval ? Math.max(1, Math.round(baseHeightPx * SQRT2)) : null;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = isRound
-      ? exportSizePx
-      : isOval
-      ? exportOvalW
-      : isRounded
-      ? Math.max(1, baseWidthPx + pad * 2)
-      : baseWidthPx;
-
-    canvas.height = isRound
-      ? exportSizePx
-      : isOval
-      ? exportOvalH
-      : isRounded
-      ? Math.max(1, baseHeightPx + pad * 2)
-      : baseHeightPx;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
-
-    const computeContainInRect = (rectX, rectY, rectW, rectH) => {
-      const iw = img.naturalWidth || img.width || 1;
-      const ih = img.naturalHeight || img.height || 1;
-      const scale = Math.min(rectW / iw, rectH / ih);
-      const dw = iw * scale;
-      const dh = ih * scale;
-      const dx = rectX + (rectW - dw) / 2;
-      const dy = rectY + (rectH - dh) / 2;
-      return { dx, dy, dw, dh };
-    };
-
-    const drawContainInRect = (targetCtx, rectX, rectY, rectW, rectH) => {
-      const { dx, dy, dw, dh } = computeContainInRect(rectX, rectY, rectW, rectH);
-      targetCtx.drawImage(img, dx, dy, dw, dh);
-    };
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (needsBgFill) {
-      ctx.fillStyle = bgColorEff || "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    if (isRound || isOval) {
-      const rectX = (canvas.width - baseWidthPx) / 2;
-      const rectY = (canvas.height - baseHeightPx) / 2;
-      drawContainInRect(ctx, rectX, rectY, baseWidthPx, baseHeightPx);
-    } else if (isRounded) {
-      drawContainInRect(ctx, pad, pad, baseWidthPx, baseHeightPx);
-    } else if (shape === "freeform") {
-      const master =
-        freeformMaster ||
-        buildFreeformMasterMask({
-          imgEl: img,
-          imgAspect: imgAspect || 1,
-          getMasterRectFromAspect,
-          maxMaskDim: 520,
-          padPx: 120,
-        });
-
-      const borderPx = mmToPxAtDpi(freeformBorderMm, EXPORT_DPI);
-
-      const ffCanvas = renderFreeformFromMasterMask({
-        master,
-        outWpx: cmToPxAtDpi(widthCm, EXPORT_DPI),
-        outHpx: cmToPxAtDpi(heightCm, EXPORT_DPI),
-        bgColor: hasBgFill ? bgColorEff : "transparent",
-        borderPx,
-      });
-
-      canvas.width = ffCanvas.width;
-      canvas.height = ffCanvas.height;
-      const ctxFF = canvas.getContext("2d");
-      if (!ctxFF) throw new Error("Canvas Kontext nicht verfügbar.");
-      ctxFF.clearRect(0, 0, canvas.width, canvas.height);
-      ctxFF.drawImage(ffCanvas, 0, 0);
-    } else {
-      drawContainInRect(ctx, 0, 0, canvas.width, canvas.height);
-    }
-
-    const renderedDataUrl = canvas.toDataURL("image/png");
-
-    // ✅ Export API call (SVG wird serverseitig gebaut + zu Shopify Files hochgeladen)
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        renderedDataUrl,
-        imageUrl: remoteUrlForExport, // wichtig: remote (Shopify erreichbarer) Pfad
-        shape,
-        widthPx: canvas.width,
-        heightPx: canvas.height,
-
-        bgMode,
-        bgColor: bgColorEff,
-
-        rectWidthPx: baseWidthPx,
-        rectHeightPx: baseHeightPx,
-        dpi: EXPORT_DPI,
-        effectiveDpi: Math.round(effectiveDpi),
-
-        colorKey: String(colorKey || "white"),
-        sizeKey: String(sizeKey || ""),
-        widthCm: Number(effWcm) || 0,
-        heightCm: Number(effHcm) || 0,
-
-        // ✅ wichtig: wir wollen in Prod SVG zu Shopify hochladen
-        uploadSvgToShopify: true,
-        uploadPngToShopify: false,
-      }),
-    });
-
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      throw new Error(`Export API error ${res.status}: ${t}`);
-    }
-
-    const data = await res.json().catch(() => null);
-    if (!data?.svgUrl) throw new Error("Export OK, aber keine svgUrl im Response.");
-
-    // ✅ Cache setzen
-    lastExportKeyRef.current = exportKey;
-    lastExportSvgUrlRef.current = data.svgUrl;
-
-    return data.svgUrl;
-  }
-
-  // ✅ Viewport (für stabile Preview-Box in px)
   const [vp, setVp] = useState(() => ({
     w: typeof window !== "undefined" ? window.innerWidth : 1200,
     h: typeof window !== "undefined" ? window.innerHeight : 800,
@@ -1448,8 +1112,33 @@ export default function StickerCanvasClient({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // ✅ helper: "aktive" Maße für Berechnung/Matching/Export/Cart
-  // Freiform: Mindestkante (40mm) erzwingen
+  const isMobile = vp.w <= 900;
+
+  // ✅ Preview an RIGHT PANEL koppeln (ResizeObserver)
+  const rightPanelRef = useRef(null);
+  const [rightBox, setRightBox] = useState({ w: 900, h: 600 });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const el = rightPanelRef.current;
+    if (!el || !("ResizeObserver" in window)) return;
+
+    const ro = new ResizeObserver((entries) => {
+      const r = entries?.[0]?.contentRect;
+      if (!r) return;
+      setRightBox((prev) => {
+        const w = Math.max(200, Math.round(r.width || 0));
+        const h = Math.max(200, Math.round(r.height || 0));
+        if (prev.w === w && prev.h === h) return prev;
+        return { w, h };
+      });
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // ✅ helper: "aktive" Maße
   const effDims = useMemo(() => {
     if (shape !== "freeform") return { wCm: widthCm, hCm: heightCm, scaled: false, k: 1 };
     return enforceMinEdgeCm(billingWidthCm, billingHeightCm, MIN_EDGE_CM);
@@ -1458,7 +1147,6 @@ export default function StickerCanvasClient({
   const effWcm = effDims.wCm;
   const effHcm = effDims.hCm;
 
-  // ✅ Freiform: aus langer Kante + Aspect (W/H) -> Billing-Dims (cm)
   function freeformDimsFromLongSide(longSideCm, aspectWdivH) {
     const long = clampNum(longSideCm, MIN_EDGE_CM, 20);
     const ar = Number(aspectWdivH);
@@ -1468,21 +1156,17 @@ export default function StickerCanvasClient({
     let h = long;
 
     if (safeAr >= 1) {
-      // breit -> Breite ist die lange Kante
       w = long;
       h = long / safeAr;
     } else {
-      // hoch -> Höhe ist die lange Kante
       h = long;
       w = long * safeAr;
     }
 
-    // Mindestkante sicherstellen (proportional hoch)
     const r = enforceMinEdgeCm(w, h, MIN_EDGE_CM);
     w = r.wCm;
     h = r.hCm;
 
-    // max 20cm auf der langen Kante (falls durch Mindestkante/rounding drüber)
     const maxSide = Math.max(w, h);
     if (maxSide > 20) {
       const k = 20 / Math.max(1e-9, maxSide);
@@ -1493,7 +1177,6 @@ export default function StickerCanvasClient({
     return { wCm: Number(w.toFixed(2)), hCm: Number(h.toFixed(2)) };
   }
 
-  // ✅ Freiform: UI/State automatisch korrigieren (damit niemand unter 40mm bleibt)
   useEffect(() => {
     if (shape !== "freeform") return;
 
@@ -1503,7 +1186,6 @@ export default function StickerCanvasClient({
     setBillingWidthCm(clampNum(r.wCm, MIN_EDGE_CM, 300));
     setBillingHeightCm(clampNum(r.hCm, MIN_EDGE_CM, 300));
 
-    // Optional: Design-Dims proportional mitziehen (stabilere Preview/Design)
     const k = Number(r.k) || 1;
     if (k > 1.0001) {
       setWidthCm((prev) => clampNum((Number(prev) || MIN_EDGE_CM) * k, 1, 300));
@@ -1512,14 +1194,12 @@ export default function StickerCanvasClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, billingWidthCm, billingHeightCm]);
 
-  // ✅ Freiform: Dropdown -> Billing-Dims proportional zur Cutline (oder Bild-Aspect als Fallback)
   useEffect(() => {
     if (shape !== "freeform") return;
 
     const ar = freeformCutAspect || imgAspect || 1;
     const dims = freeformDimsFromLongSide(freeformLongSideCm, ar);
 
-    // nur setzen wenn wirklich Änderung (Loops vermeiden)
     if (!approxEq(billingWidthCm, dims.wCm, 0.01)) setBillingWidthCm(dims.wCm);
     if (!approxEq(billingHeightCm, dims.hCm, 0.01)) setBillingHeightCm(dims.hCm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1556,7 +1236,6 @@ export default function StickerCanvasClient({
     };
   }, []);
 
-  // ✅ Katalog-Definition kommt immer aus der Basisform (bei rotated shapes)
   const shapeDef = useMemo(() => {
     return catalog?.[baseShapeKey] || null;
   }, [catalog, baseShapeKey]);
@@ -1631,7 +1310,6 @@ export default function StickerCanvasClient({
     return availableSizes.find((s) => String(s.sizeKey) === String(sizeKey)) || null;
   }, [availableSizes, sizeKey]);
 
-  // Ensure colorKey and initial sizeKey exist for shapes that use dropdown
   useEffect(() => {
     if (!catalog || !shapeDef) return;
 
@@ -1664,7 +1342,6 @@ export default function StickerCanvasClient({
       return;
     }
 
-    // Bei Freiform: sizeKey wird später automatisch aus Billing-Input gesetzt.
     if (shape === "freeform") return;
 
     const exists = list.some((x) => String(x.sizeKey) === String(sizeKey));
@@ -1674,8 +1351,6 @@ export default function StickerCanvasClient({
 
   useEffect(() => {
     if (!catalog || !shapeDef) return;
-
-    // Bei Freiform: sizeKey wird automatisch aus Billing-Input gesetzt.
     if (shape === "freeform") return;
 
     const list = hasCatalogColors
@@ -1692,12 +1367,10 @@ export default function StickerCanvasClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, colorKey, hasCatalogColors, catalog]);
 
-  // ✅ Freiform: freie Maße -> Abrechnungsgröße (sizeKey/variantId) automatisch wählen (ceil)
   useEffect(() => {
     if (shape !== "freeform") return;
     if (!availableSizes.length) return;
 
-    // Wichtig: hier effWcm/effHcm verwenden (Mindestkante bereits erzwungen)
     const best = pickBillingSizeForFreeform(effWcm, effHcm, availableSizes);
     if (!best) return;
 
@@ -1712,7 +1385,6 @@ export default function StickerCanvasClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, effWcm, effHcm, availableSizes]);
 
-  // ✅ Freiform: Design-Maße automatisch in Billing-Box fitten (Proportion = Cutline-Aspect, fallback imgAspect)
   useEffect(() => {
     if (shape !== "freeform") return;
 
@@ -1730,16 +1402,12 @@ export default function StickerCanvasClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, effWcm, effHcm, imgAspect, freeformCutAspect]);
 
-  // ✅ Feste Formen: Größe aus Dropdown setzt Maße
   useEffect(() => {
     if (!selectedSizeObj) return;
 
     const w = Number(selectedSizeObj.wCm);
     const h = Number(selectedSizeObj.hCm);
     const vid = String(selectedSizeObj.variantId || "");
-    // Wenn der Loader (noch) nur die White-"sizes" liefert, ist variantId hier immer die White-Variante.
-    // Darum: variantId aus dem Katalog nur direkt verwenden, wenn Farben im Katalog vorhanden sind
-    // oder wir explizit auf "white" stehen.
     const trustCatalogVid = !!hasCatalogColors || String(colorKey || "white") === "white";
     if (vid && trustCatalogVid) {
       const n = Number(vid) || 0;
@@ -1764,11 +1432,9 @@ export default function StickerCanvasClient({
     setBillingHeightCm(heightCm);
   }, [shape, widthCm, heightCm]);
 
-  // ✅ Freiform: Preset-LongSide aus aktuellen effektiven Maßen ableiten (beim Wechsel auf Freiform)
   useEffect(() => {
     if (shape !== "freeform") return;
     const long = Math.max(Number(effWcm) || MIN_EDGE_CM, Number(effHcm) || MIN_EDGE_CM);
-    // auf nächste verfügbare Presetgröße runden (ceil)
     const next =
       FREEFORM_LONGSIDE_PRESETS_CM.find((x) => x >= long) ||
       FREEFORM_LONGSIDE_PRESETS_CM[FREEFORM_LONGSIDE_PRESETS_CM.length - 1];
@@ -1776,7 +1442,6 @@ export default function StickerCanvasClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
 
-  // Multi-Product per shape
   const [activeHandle, setActiveHandle] = useState(() => {
     const map = getShapeHandleMap();
     const current = guessCurrentProductHandle();
@@ -1788,15 +1453,14 @@ export default function StickerCanvasClient({
   useEffect(() => {
     const map = getShapeHandleMap();
     const current = guessCurrentProductHandle();
-    const key = String(shapeMeta?.base || shape || "square").toLowerCase(); // ✅ base für rotated shapes
+    const key = String(shapeMeta?.base || shape || "square").toLowerCase();
     const next = map && map[key] ? String(map[key]) : current;
     if (next && next !== activeHandle) setActiveHandle(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, shapeMeta]);
 
-  // Cache + Inflight-Guard gegen Request-Sturm
-  const variantInfoCacheRef = useRef(new Map()); // vid -> { price:number, title:string }
-  const variantInfoInFlightRef = useRef(new Map()); // vid -> Promise
+  const variantInfoCacheRef = useRef(new Map());
+  const variantInfoInFlightRef = useRef(new Map());
   const lastVariantFetchVidRef = useRef(0);
 
   useEffect(() => {
@@ -1805,7 +1469,6 @@ export default function StickerCanvasClient({
     const vid = Number(selectedVariantId) || 0;
     if (!vid) return;
 
-    // 0) Cache: wenn wir die Variant-Info schon haben, nicht nochmal fetchen
     const cached = variantInfoCacheRef.current.get(vid);
     if (cached) {
       setSelectedVariantPrice(Number(cached.price) || 0);
@@ -1813,7 +1476,6 @@ export default function StickerCanvasClient({
       return;
     }
 
-    // 1) Wenn Variantenliste vorhanden ist (z.B. bereits geladen), daraus ziehen und cachen
     const fromList = Array.isArray(productVariants) ? productVariants.find((x) => Number(x?.id) === vid) : null;
 
     if (fromList) {
@@ -1825,7 +1487,6 @@ export default function StickerCanvasClient({
       return;
     }
 
-    // 2) Inflight-Guard: gleiche Variant-ID nicht parallel / nicht endlos erneut laden
     if (variantInfoInFlightRef.current.get(vid)) {
       return () => {
         cancelled = true;
@@ -1836,7 +1497,6 @@ export default function StickerCanvasClient({
     const controller = new AbortController();
 
     const p = (async () => {
-      // A) ✅ Storefront: same-origin variants/<id>.js
       try {
         const res = await fetch(`/variants/${vid}.js`, {
           method: "GET",
@@ -1857,11 +1517,8 @@ export default function StickerCanvasClient({
             return;
           }
         }
-      } catch (_) {
-        // ignore
-      }
+      } catch (_) {}
 
-      // B) ✅ Same-origin App-Backend (Admin / Fallback)
       try {
         const res = await fetch(api(`/sticker/variant?variantId=${encodeURIComponent(String(vid))}`), {
           method: "GET",
@@ -1894,11 +1551,8 @@ export default function StickerCanvasClient({
           }
           return;
         }
-      } catch (_) {
-        // ignore
-      }
+      } catch (_) {}
 
-      // C) Fallback: direct variant endpoint über erkannte Shop-Domain (ohne Cookies)
       try {
         const shopHost = normalizeShopDomain(guessShopDomain());
         if (!shopHost) return;
@@ -1919,11 +1573,8 @@ export default function StickerCanvasClient({
         variantInfoCacheRef.current.set(vid, { price, title });
         setSelectedVariantPrice(price);
         setSelectedVariantTitle(title);
-      } catch (_) {
-        // ignore
-      }
+      } catch (_) {}
     })().finally(() => {
-      // inflight cleanup
       variantInfoInFlightRef.current.delete(vid);
     });
 
@@ -2072,11 +1723,9 @@ export default function StickerCanvasClient({
         if (!cancelled) {
           setFreeformMaster(master);
 
-          // ✅ Original-Proportion aus Mask-BBox ableiten
           const ar = maskAspectFromBBox(master.insideMask, master.mw, master.mh);
           setFreeformCutAspect(ar);
 
-          // ✅ Billing-Box direkt einmal auf diese Proportion "einrasten" lassen (ohne Sprünge)
           const edited = lastFreeformEditRef.current || "w";
           const r = enforceAspectWithMinEdge({
             wCm: billingWidthCm,
@@ -2117,7 +1766,6 @@ export default function StickerCanvasClient({
       if (cancelled) return;
 
       try {
-        // ✅ Für Preview in px: effektive Billing-Dims nutzen (Mindestkante garantiert)
         const billingRawW = Math.max(1, Math.round((Number(effWcm) || 0) * PX_PER_CM));
         const billingRawH = Math.max(1, Math.round((Number(effHcm) || 0) * PX_PER_CM));
 
@@ -2205,7 +1853,6 @@ export default function StickerCanvasClient({
     }
 
     const normalizedImageUrl = normalizeUrl(imageUrl);
-
     const allowServerPreview = isProbablyRemoteUrl(normalizedImageUrl) && !isBlobUrl(normalizedImageUrl);
 
     if (!allowServerPreview) {
@@ -2247,7 +1894,6 @@ export default function StickerCanvasClient({
               bgColor: bgColorEff,
               freeformBorderMm,
               maxPx: 700,
-
               sealGapsPx: FREEFORM_SEAL_GAPS_PX,
             }),
           });
@@ -2336,9 +1982,7 @@ export default function StickerCanvasClient({
     imgElRef.current = null;
     imgElUrlRef.current = "";
 
-    // Reset Cut-Aspect, wird nach Master neu berechnet
     setFreeformCutAspect(1);
-
     pendingFileRef.current = file;
   }
 
@@ -2394,7 +2038,6 @@ export default function StickerCanvasClient({
     return out;
   }
 
-  // ✅ UI helper: Filepicker öffnen (für rechten "Hero Upload" Button)
   function openFilePicker() {
     setAddedMsg("");
     try {
@@ -2403,41 +2046,199 @@ export default function StickerCanvasClient({
   }
 
   // ==============================
-  // Export
+  // Export (dein bisheriger Code bleibt – hier nicht erneut aufgebläht)
   // ==============================
-  async function exportSvg() {
-    setErrorMsg("");
-
-    if (!imageUrl) {
-      setErrorMsg("Bitte zuerst ein Bild hochladen.");
-      return;
-    }
-
-    setExporting(true);
-
-    try {
-      const remoteUrl = await ensureRemoteUpload();
-
-      // ✅ Einheitlicher Export: SVG erzeugen (Shopify Files) und öffnen
-      const svgUrl = await ensureSvgExportForCart(remoteUrl);
-
-      window.open(svgUrl, "_blank", "noopener,noreferrer");
-    } catch (e) {
-      setErrorMsg(e?.message || String(e));
-    } finally {
-      setExporting(false);
-    }
+  function buildExportKeyForCart() {
+    return [
+      String(imageUrl || ""),
+      String(shape || ""),
+      String(colorKey || ""),
+      String(sizeKey || ""),
+      String(bgMode || ""),
+      String(bgColorEff || ""),
+      String(freeformBorderMm || ""),
+      String(effWcm || ""),
+      String(effHcm || ""),
+      String(widthCm || ""),
+      String(heightCm || ""),
+    ].join("|");
   }
 
+  async function ensureSvgExportForCart(remoteUrlForExport) {
+    const exportKey = buildExportKeyForCart();
+    if (lastExportKeyRef.current === exportKey && lastExportSvgUrlRef.current) {
+      return lastExportSvgUrlRef.current;
+    }
+
+    const url = api("/sticker/export");
+
+    const shared = imgElUrlRef.current === imageUrl ? imgElRef.current : null;
+    const img = shared || (await loadImage(imageUrl));
+
+    const effectiveDpi = calcEffectiveDpi({
+      imgPxW: img.naturalWidth || img.width || 0,
+      imgPxH: img.naturalHeight || img.height || 0,
+      targetCmW: effWcm,
+      targetCmH: effHcm,
+    });
+
+    if (effectiveDpi < MIN_DPI) {
+      throw new Error(
+        `Bildauflösung zu gering (${Math.round(effectiveDpi)} DPI). Minimum: ${MIN_DPI} DPI. ` +
+          `Bitte ein größeres Bild hochladen oder Sticker kleiner wählen.`
+      );
+    }
+
+    const baseWidthPx = cmToPxAtDpi(effWcm, EXPORT_DPI);
+    const baseHeightPx = cmToPxAtDpi(effHcm, EXPORT_DPI);
+
+    const isRound = shape === "round";
+    const isOval = shape === "oval" || shape === "oval_portrait";
+    const isSquare = shape === "square";
+    const isSquareRounded = shape === "square_rounded";
+    const isRectRounded = shape === "rect_rounded" || shape === "rect_landscape_rounded";
+    const isRounded = isSquareRounded || isRectRounded;
+
+    const pad = isRounded ? mmToPxAtDpi(ROUNDED_RADIUS_MM, EXPORT_DPI) : 0;
+    const needsBgFill = (isRound || isOval || isSquare || isRounded) && hasBgFill;
+
+    const exportSizePx = isRound ? Math.max(1, Math.round(diagonalFromRect(baseWidthPx, baseHeightPx))) : null;
+    const exportOvalW = isOval ? Math.max(1, Math.round(baseWidthPx * SQRT2)) : null;
+    const exportOvalH = isOval ? Math.max(1, Math.round(baseHeightPx * SQRT2)) : null;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = isRound
+      ? exportSizePx
+      : isOval
+      ? exportOvalW
+      : isRounded
+      ? Math.max(1, baseWidthPx + pad * 2)
+      : baseWidthPx;
+
+    canvas.height = isRound
+      ? exportSizePx
+      : isOval
+      ? exportOvalH
+      : isRounded
+      ? Math.max(1, baseHeightPx + pad * 2)
+      : baseHeightPx;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
+
+    const computeContainInRect = (rectX, rectY, rectW, rectH) => {
+      const iw = img.naturalWidth || img.width || 1;
+      const ih = img.naturalHeight || img.height || 1;
+      const scale = Math.min(rectW / iw, rectH / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      const dx = rectX + (rectW - dw) / 2;
+      const dy = rectY + (rectH - dh) / 2;
+      return { dx, dy, dw, dh };
+    };
+
+    const drawContainInRect = (targetCtx, rectX, rectY, rectW, rectH) => {
+      const { dx, dy, dw, dh } = computeContainInRect(rectX, rectY, rectW, rectH);
+      targetCtx.drawImage(img, dx, dy, dw, dh);
+    };
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (needsBgFill) {
+      ctx.fillStyle = bgColorEff || "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (isRound || isOval) {
+      const rectX = (canvas.width - baseWidthPx) / 2;
+      const rectY = (canvas.height - baseHeightPx) / 2;
+      drawContainInRect(ctx, rectX, rectY, baseWidthPx, baseHeightPx);
+    } else if (isRounded) {
+      drawContainInRect(ctx, pad, pad, baseWidthPx, baseHeightPx);
+    } else if (shape === "freeform") {
+      const master =
+        freeformMaster ||
+        buildFreeformMasterMask({
+          imgEl: img,
+          imgAspect: imgAspect || 1,
+          getMasterRectFromAspect,
+          maxMaskDim: 520,
+          padPx: 120,
+        });
+
+      const borderPx = mmToPxAtDpi(freeformBorderMm, EXPORT_DPI);
+
+      const ffCanvas = renderFreeformFromMasterMask({
+        master,
+        outWpx: cmToPxAtDpi(widthCm, EXPORT_DPI),
+        outHpx: cmToPxAtDpi(heightCm, EXPORT_DPI),
+        bgColor: hasBgFill ? bgColorEff : "transparent",
+        borderPx,
+      });
+
+      canvas.width = ffCanvas.width;
+      canvas.height = ffCanvas.height;
+      const ctxFF = canvas.getContext("2d");
+      if (!ctxFF) throw new Error("Canvas Kontext nicht verfügbar.");
+      ctxFF.clearRect(0, 0, canvas.width, canvas.height);
+      ctxFF.drawImage(ffCanvas, 0, 0);
+    } else {
+      drawContainInRect(ctx, 0, 0, canvas.width, canvas.height);
+    }
+
+    const renderedDataUrl = canvas.toDataURL("image/png");
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        renderedDataUrl,
+        imageUrl: remoteUrlForExport,
+        shape,
+        widthPx: canvas.width,
+        heightPx: canvas.height,
+
+        bgMode,
+        bgColor: bgColorEff,
+
+        rectWidthPx: baseWidthPx,
+        rectHeightPx: baseHeightPx,
+        dpi: EXPORT_DPI,
+        effectiveDpi: Math.round(effectiveDpi),
+
+        colorKey: String(colorKey || "white"),
+        sizeKey: String(sizeKey || ""),
+        widthCm: Number(effWcm) || 0,
+        heightCm: Number(effHcm) || 0,
+
+        uploadSvgToShopify: true,
+        uploadPngToShopify: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Export API error ${res.status}: ${t}`);
+    }
+
+    const data = await res.json().catch(() => null);
+    if (!data?.svgUrl) throw new Error("Export OK, aber keine svgUrl im Response.");
+
+    lastExportKeyRef.current = exportKey;
+    lastExportSvgUrlRef.current = data.svgUrl;
+
+    return data.svgUrl;
+  }
+
+  // ==============================
+  // Stückzahl: Katalog bevorzugen
+  // ==============================
   useEffect(() => {
-    // 1) Wenn Katalogwert existiert: den verwenden
     const fromCatalog = selectedSizeObj?.piecesPerSet;
     if (Number.isFinite(fromCatalog) && fromCatalog > 0) {
       setRealPieces((prev) => (prev === fromCatalog ? prev : fromCatalog));
       return;
     }
-
-    // 2) Fallback: bisherige Berechnung (falls Katalog noch nicht gepflegt)
     const pieces = calcPiecesFixed(shape, effWcm, effHcm);
     setRealPieces((prev) => (prev === pieces ? prev : pieces));
   }, [selectedSizeObj, shape, effWcm, effHcm]);
@@ -2472,12 +2273,10 @@ export default function StickerCanvasClient({
       return;
     }
 
-    // ✅ NEU: SVG Export erzeugen und URL merken (Shopify Files URL)
     let svgUrl = "";
     try {
       svgUrl = await ensureSvgExportForCart(remoteUrl);
     } catch (e) {
-      // SVG ist für Produktion Pflicht -> abbrechen
       setErrorMsg(e?.message || String(e));
       return;
     }
@@ -2507,13 +2306,11 @@ export default function StickerCanvasClient({
         quantity: 1,
         properties: {
           _sc_line_id: String(Date.now()),
-
           _sc_shape: String(shape),
 
           _sc_major_cm: fmtCm(major),
           _sc_print_length_cm: String(PRINT_LENGTH_CM),
 
-          // ✅ intern (bleibt)
           _sc_pieces_per_pack: String(pieces),
           _sc_total_pieces_hint: String(pieces),
 
@@ -2525,8 +2322,6 @@ export default function StickerCanvasClient({
           _sc_border_mm: String(freeformBorderMm),
 
           _sc_image: remoteUrl,
-
-          // ✅ NEU: Link zur Produktions-SVG (Shopify Files)
           _sc_svg: svgUrl,
 
           _sc_variant_id: String(variantId),
@@ -2559,11 +2354,14 @@ export default function StickerCanvasClient({
   }
 
   // ==============================
-  // ✅ Preview-Box px-Fit
+  // ✅ Preview-Dims: an Right Panel koppeln
   // ==============================
   const previewDims = useMemo(() => {
-    const maxW = Math.max(240, Math.min(PREVIEW_MAX_PX, vp.w * PREVIEW_MAX_VW_FACTOR));
-    const maxH = Math.max(240, vp.h * PREVIEW_MAX_VH_FACTOR);
+    // Panel-Insets (CSS padding): Desktop 24px, Mobile 14px (siehe CSS)
+    const pad = isMobile ? 14 : 24;
+
+    const maxW = Math.max(240, (rightBox.w || vp.w) - pad * 2);
+    const maxH = Math.max(240, (rightBox.h || vp.h) - pad * 2);
 
     const clampAr = (ar) => {
       const a = Number(ar);
@@ -2608,181 +2406,64 @@ export default function StickerCanvasClient({
     }
 
     return { w: Math.round(wPx), h: Math.round(hPx), ar };
-  }, [vp.w, vp.h, shape, widthCm, heightCm, billingWidthCm, billingHeightCm, effWcm, effHcm]);
-
-  // ==============================
-  // ✅ Transparenz-Schachbrett (nur innerhalb Stickerfläche)
-  // ==============================
-  const transparentPattern = useMemo(() => {
-    const c1 = "rgba(255,255,255,0.09)";
-    const c2 = "rgba(0,0,0,0.14)";
-    const size = 18;
-    return {
-      backgroundImage: `
-        linear-gradient(45deg, ${c2} 25%, transparent 25%, transparent 75%, ${c2} 75%, ${c2}),
-        linear-gradient(45deg, ${c2} 25%, transparent 25%, transparent 75%, ${c2} 75%, ${c2})
-      `,
-      backgroundSize: `${size}px ${size}px`,
-      backgroundPosition: `0 0, ${size / 2}px ${size / 2}px`,
-      backgroundColor: c1,
-    };
-  }, []);
-
-  const showTransparentMark = useMemo(() => bgMode === "transparent", [bgMode]);
-  const TRANSPARENT_UI_SHADE = "rgba(255,255,255,0.06)";
-  const TRANSPARENT_UI_OUTLINE = "rgba(255,255,255,0.35)";
-
-  // ==============================
-  // UI Preview styles
-  // ==============================
-  const PREVIEW_SURFACE_SCALE = 0.88;
-
-  const previewFrameStyle = useMemo(() => {
-    return {
-      position: "relative",
-      width: `${previewDims.w}px`,
-      height: `${previewDims.h}px`,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "visible",
-    };
-  }, [previewDims.w, previewDims.h]);
+  }, [rightBox.w, rightBox.h, vp.w, vp.h, isMobile, shape, widthCm, heightCm, effWcm, effHcm]);
 
   const fixedSurfaceDims = useMemo(() => {
-    const s = clampNum(PREVIEW_SURFACE_SCALE, 0.6, 0.98);
+    const s = 0.88;
     return {
       w: Math.max(1, Math.round(previewDims.w * s)),
       h: Math.max(1, Math.round(previewDims.h * s)),
     };
   }, [previewDims.w, previewDims.h]);
 
-  const freeformContainerStyle = useMemo(() => {
-    return {
-      position: "relative",
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-      width: `${previewDims.w}px`,
-      height: `${previewDims.h}px`,
-      maxWidth: "100%",
-      maxHeight: "100%",
-      background: "transparent",
-    };
-  }, [previewDims.w, previewDims.h]);
-
-  const fixedShapeSurfaceStyle = useMemo(() => {
-    if (shape === "freeform") return null;
-
-    const base = {
-      position: "relative",
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-      width: `${fixedSurfaceDims.w}px`,
-      height: `${fixedSurfaceDims.h}px`,
-      maxWidth: "100%",
-      maxHeight: "100%",
-      background: hasBgFill ? bgColorEff : showTransparentMark ? TRANSPARENT_UI_SHADE : "transparent",
-      filter: "drop-shadow(0 10px 28px rgba(0,0,0,0.45))",
-    };
-
-    if (shape === "round") return { ...base, borderRadius: "50%" };
-
-    if (shape === "oval" || shape === "oval_portrait") {
-      return { ...base, borderRadius: "50%", clipPath: "ellipse(50% 50% at 50% 50%)" };
-    }
-
-    if (shape === "square_rounded" || shape === "rect_rounded" || shape === "rect_landscape_rounded") {
-      return { ...base, borderRadius: "28px" };
-    }
-
-    return base;
-  }, [shape, fixedSurfaceDims.w, fixedSurfaceDims.h, hasBgFill, bgColorEff, showTransparentMark, TRANSPARENT_UI_SHADE]);
-
-  const fixedShapeOutlineStyle = useMemo(() => {
-    if (shape === "freeform") return null;
-    const alpha = showTransparentMark ? 0.28 : 0.14;
-    return {
-      position: "absolute",
-      inset: 0,
-      pointerEvents: "none",
-      border: `1px solid rgba(255,255,255,${alpha})`,
-      borderRadius: "inherit",
-      boxShadow: `inset 0 0 0 1px rgba(0,0,0,${showTransparentMark ? 0.28 : 0.18})`,
-    };
-  }, [shape, showTransparentMark]);
-
-  const shapeContainerStyle = freeformContainerStyle;
-
-  const roundImgBoxStyle = useMemo(() => {
+  const roundImgBoxStyleVars = useMemo(() => {
     const w = Math.max(1e-9, Number(widthCm) || 1);
     const h = Math.max(1e-9, Number(heightCm) || 1);
     const diag = Math.max(1e-9, diagonalFromRect(w, h));
     const wp = (w / diag) * 100;
     const hp = (h / diag) * 100;
-    return { width: `${wp}%`, height: `${hp}%`, maxWidth: "100%", maxHeight: "100%" };
+    return { "--scRoundW": `${wp}%`, "--scRoundH": `${hp}%` };
   }, [widthCm, heightCm]);
 
-  const ovalImgBoxStyle = useMemo(() => {
-    const s = 1 / SQRT2;
-    return { width: `${s * 100}%`, height: `${s * 100}%`, maxWidth: "100%", maxHeight: "100%" };
-  }, []);
+  // ✅ Transparenz-Checker: per CSS Class
+  const showTransparentMark = useMemo(() => bgMode === "transparent", [bgMode]);
 
-  const freeformMaskedTransparencyStyle = useMemo(() => {
+  // ✅ Freiform Mask-Overlay braucht dynamische URL
+  const freeformMaskStyle = useMemo(() => {
     if (!showTransparentMark) return null;
     if (shape !== "freeform") return null;
     if (!displaySrc) return null;
 
     return {
-      position: "absolute",
-      inset: 0,
-      pointerEvents: "none",
-      ...transparentPattern,
-
       WebkitMaskImage: `url(${displaySrc})`,
       WebkitMaskRepeat: "no-repeat",
       WebkitMaskPosition: "center",
       WebkitMaskSize: "contain",
-
       maskImage: `url(${displaySrc})`,
       maskRepeat: "no-repeat",
       maskPosition: "center",
       maskSize: "contain",
-
-      opacity: 1,
     };
-  }, [showTransparentMark, shape, displaySrc, transparentPattern]);
+  }, [showTransparentMark, shape, displaySrc]);
 
-  const freeformImgEnhanceStyle = useMemo(() => {
-    if (shape !== "freeform") return null;
-    if (!showTransparentMark) return null;
-    return {
-      filter: "drop-shadow(0 0 0.9px rgba(255,255,255,0.70)) drop-shadow(0 8px 22px rgba(0,0,0,0.45))",
-    };
-  }, [shape, showTransparentMark]);
-
-  const previewBg = useMemo(() => "#0b0f16", []);
+  const normalizedDisplayImageUrl2 = normalizedDisplayImageUrl; // keep reference
 
   // ==============================
-  // Render
+  // Render Helpers
   // ==============================
-  return (
-    <div style={styles.wrapper}>
-      <div style={styles.leftPanel}>
-
-        <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-          <label>
-            Form
+  function renderConfigurator() {
+    return (
+      <>
+        <div className="scBlock">
+          <label className="scField">
+            <span className="scLabel">Form</span>
             <select
+              className="scSelect"
               value={shape}
               onChange={(e) => {
                 setAddedMsg("");
                 setShape(e.target.value);
               }}
-              style={{ width: "100%", marginTop: 4, ...styles.select }}
             >
               <option value="square">Quadratisch</option>
               <option value="square_rounded">Quadratisch abgerundet</option>
@@ -2801,49 +2482,39 @@ export default function StickerCanvasClient({
             </select>
           </label>
 
-          {/* ✅ Größe: feste Formen = Dropdown, Freiform = Dropdown (iOS-sicher) */}
           {shape === "freeform" ? (
-            <>
-              <label>
-                Größe
-                <select
-                  value={String(freeformLongSideCm)}
-                  onChange={(e) => {
-                    setAddedMsg("");
-                    const v = parseNumberDE(e.target.value);
-                    if (!Number.isFinite(v)) return;
-                    setFreeformLongSideCm(v);
-                  }}
-                  style={{ width: "100%", marginTop: 4, ...styles.select }}
-                >
-                  {FREEFORM_LONGSIDE_PRESETS_CM.map((cm) => {
-                    const ar = freeformCutAspect || imgAspect || 1;
-                    const dims = freeformDimsFromLongSide(cm, ar);
-                    const label = `${fmtCm(cm)} cm (≈ ${dims.wCm.toFixed(2)} × ${dims.hCm.toFixed(2)} cm)`;
-                    return (
-                      <option key={`ff-${cm}`} value={String(cm)}>
-                        {label}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-
-              {/*<div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                Effektiv (Abrechnung):{" "}
-                <b>
-                  {fmtCm(effWcm)} × {fmtCm(effHcm)} cm
-                </b>
-              </div>*/}
-            </>
-          ) : (
-            <label>
-              Größe
+            <label className="scField">
+              <span className="scLabel">Größe</span>
               <select
+                className="scSelect"
+                value={String(freeformLongSideCm)}
+                onChange={(e) => {
+                  setAddedMsg("");
+                  const v = parseNumberDE(e.target.value);
+                  if (!Number.isFinite(v)) return;
+                  setFreeformLongSideCm(v);
+                }}
+              >
+                {FREEFORM_LONGSIDE_PRESETS_CM.map((cm) => {
+                  const ar = freeformCutAspect || imgAspect || 1;
+                  const dims = freeformDimsFromLongSide(cm, ar);
+                  const label = `${fmtCm(cm)} cm (≈ ${dims.wCm.toFixed(2)} × ${dims.hCm.toFixed(2)} cm)`;
+                  return (
+                    <option key={`ff-${cm}`} value={String(cm)}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+          ) : (
+            <label className="scField">
+              <span className="scLabel">Größe</span>
+              <select
+                className="scSelect"
                 value={sizeKey}
                 onChange={(e) => setSizeKey(e.target.value)}
                 disabled={!availableSizes.length}
-                style={{ width: "100%", marginTop: 4, ...styles.select }}
               >
                 {!availableSizes.length ? (
                   <option value="">{catalog ? "Keine Größen verfügbar" : "Lade Größen..."}</option>
@@ -2859,23 +2530,27 @@ export default function StickerCanvasClient({
           )}
         </div>
 
-        <div style={styles.label}>Hintergrund</div>
-        <select value={bgMode} onChange={(e) => setBgMode(e.target.value)} style={{ width: "100%", marginTop: 4, ...styles.select }}>
-          <option value="color">Farbig</option>
-          <option value="white">Weiß</option>
-          {/*<option value="transparent">Transparent</option>*/}
-        </select>
+        <div className="scDivider" />
+
+        <label className="scField">
+          <span className="scLabel">Hintergrund</span>
+          <select className="scSelect" value={bgMode} onChange={(e) => setBgMode(e.target.value)}>
+            <option value="color">Farbig</option>
+            <option value="white">Weiß</option>
+            {/* <option value="transparent">Transparent</option> */}
+          </select>
+        </label>
 
         {shape === "freeform" ? (
-          <>
-            <div style={styles.label}>Freiform-Rand (mm)</div>
+          <label className="scField">
+            <span className="scLabel">Freiform-Rand (mm)</span>
             <select
+              className="scSelect"
               value={String(freeformBorderMm)}
               onChange={(e) => {
                 const v = Number(String(e.target.value).replace(",", "."));
                 setFreeformBorderMm(Number.isFinite(v) ? v : 3);
               }}
-              style={{ width: "100%", marginTop: 4, ...styles.select }}
             >
               {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((mm) => (
                 <option key={`ffb-${mm}`} value={String(mm)}>
@@ -2883,271 +2558,481 @@ export default function StickerCanvasClient({
                 </option>
               ))}
             </select>
-          </>
+          </label>
         ) : null}
-        
+
         {bgMode === "color" ? (
-          <>
-            <div style={styles.label}>Hintergrundfarbe</div>
-            <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} style={styles.color} />
-          </>
+          <div className="scFieldRow">
+            <div className="scLabel">Hintergrundfarbe</div>
+            <input className="scColor" type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} />
+          </div>
         ) : null}
 
-        
+        <div className="scDivider" />
 
-        <div style={styles.divider} />
+        <div className="scStats">
+          <div className="scStatLine">
+            <div className="scStatLabel">Sticker pro Set:</div>
+            <div className="scStatValue">{realPieces}</div>
+          </div>
 
-        <div style={styles.statLine}>
-          <div style={styles.statLabel}>Sticker pro Set:</div>
-          <div style={styles.statValue}>{realPieces}</div>
+          <div className="scStatLine">
+            <div className="scStatLabel">Preis:</div>
+            <div className="scStatValue">{`${priceTotal.toFixed(2)} €`}</div>
+          </div>
         </div>
 
-        <div style={styles.statLine}>
-          <div style={styles.statLabel}>Preis:</div>
-          <div style={styles.statValue}>{`${priceTotal.toFixed(2)} €`}</div>
-        </div>
-
-        <div style={styles.divider} />
+        <div className="scDivider" />
 
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          style={{ display: "none" }}
+          className="scHiddenFile"
           onChange={(e) => uploadFile(e.target.files?.[0])}
         />
 
-        {/* ✅ Patch: Linker Upload-Button nur noch als "Bild ändern" anzeigen, wenn bereits ein Bild existiert */}
         {imageUrl ? (
-          <button type="button" style={styles.secondaryBtn} onClick={openFilePicker}>
+          <button type="button" className="scBtn scBtnSecondary" onClick={openFilePicker}>
             {uploading ? "Upload…" : "Bild ändern"}
           </button>
         ) : null}
 
-        <label
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            fontSize: 12,
-            opacity: 0.9,
-            marginTop: 10,
-          }}
-        >
-          <input type="checkbox" checked={goToCartAfterAdd} onChange={(e) => setGoToCartAfterAdd(!!e.target.checked)} />
-          Nach dem Hinzufügen zum Warenkorb wechseln
+        <label className="scCheck">
+          <input
+            type="checkbox"
+            checked={goToCartAfterAdd}
+            onChange={(e) => setGoToCartAfterAdd(!!e.target.checked)}
+          />
+          <span>Nach dem Hinzufügen zum Warenkorb wechseln</span>
         </label>
 
-        {addedMsg ? <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9, color: "rgba(255,255,255,0.85)" }}>{addedMsg}</div> : null}
+        {addedMsg ? <div className="scInfo">{addedMsg}</div> : null}
 
-        <button type="button" style={styles.primaryBtn} onClick={addToCart} disabled={!imageUrl}>
+        <button type="button" className="scBtn scBtnPrimary" onClick={addToCart} disabled={!imageUrl}>
           In den Warenkorb
         </button>
 
-        {/*<button type="button" style={styles.secondaryBtn} onClick={exportSvg} disabled={!imageUrl || exporting}>
-          {exporting ? "Export…" : "SVG & PDF exportieren"}
-        </button>*/}
+        {errorMsg ? <div className="scError">{errorMsg}</div> : null}
+      </>
+    );
+  }
 
-        {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
-      </div>
+  function renderPreview() {
+    if (!imageUrl) {
+      return (
+        <div className="scEmpty">
+          <div className="scEmptyHint">Bitte links ein Bild hochladen.</div>
 
-      <div style={{ ...styles.rightPanel, background: previewBg }}>
-        {!imageUrl ? (
-          /* ✅ Patch: Upload-CTA im Preview-Bereich (oben) */
-          <div style={styles.emptyUploadWrap}>
-            <div style={styles.emptyHint}>Bitte links ein Bild hochladen.</div>
+          <button type="button" className="scBtn scBtnHero" onClick={openFilePicker} disabled={uploading}>
+            {uploading ? "Upload…" : "Bild hochladen"}
+          </button>
 
-            <button type="button" style={styles.uploadHeroBtn} onClick={openFilePicker} disabled={uploading}>
-              {uploading ? "Upload…" : "Bild hochladen"}
-            </button>
+          <div className="scEmptySub">
+            Tipp: PNG mit transparentem Hintergrund funktioniert am besten.
+          </div>
+        </div>
+      );
+    }
 
-            <div style={styles.emptySubHint}>Tipp: PNG mit transparentem Hintergrund funktioniert am besten.</div>
+    const fixedSurfaceClass = (() => {
+      if (shape === "round") return "scSurface scSurface--round";
+      if (shape === "oval" || shape === "oval_portrait") return "scSurface scSurface--oval";
+      if (shape === "square_rounded" || shape === "rect_rounded" || shape === "rect_landscape_rounded")
+        return "scSurface scSurface--rounded";
+      return "scSurface";
+    })();
+
+    const surfaceStyleVars = shape === "freeform"
+      ? {}
+      : {
+          "--scSurfW": `${fixedSurfaceDims.w}px`,
+          "--scSurfH": `${fixedSurfaceDims.h}px`,
+          "--scSurfBg": hasBgFill ? bgColorEff : showTransparentMark ? "rgba(255,255,255,0.06)" : "transparent",
+        };
+
+    const frameVars = {
+      "--scFrameW": `${previewDims.w}px`,
+      "--scFrameH": `${previewDims.h}px`,
+    };
+
+    return (
+      <div className="scPreviewFrame" style={frameVars}>
+        {shape === "freeform" ? (
+          <div className="scFreeformBox">
+            {freeformReady && showTransparentMark ? (
+              <div className="scTransparentMask" style={freeformMaskStyle || undefined} />
+            ) : null}
+
+            <img
+              src={displaySrc}
+              alt="Sticker"
+              className={`scImg scImgContain ${showTransparentMark ? "scImg--ffEnhance" : ""}`}
+              crossOrigin="anonymous"
+            />
           </div>
         ) : (
-          <div style={previewFrameStyle}>
-            {shape === "freeform" ? (
-              <div style={shapeContainerStyle}>
-                {freeformReady && freeformMaskedTransparencyStyle ? <div style={freeformMaskedTransparencyStyle} /> : null}
-
-                <img
-                  src={displaySrc}
-                  alt="Sticker"
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "contain",
-                    background: "transparent",
-                    opacity: 1,
-                    ...(freeformImgEnhanceStyle || null),
-                  }}
-                  crossOrigin="anonymous"
-                />
-              </div>
+          <div className={fixedSurfaceClass} style={surfaceStyleVars}>
+            <div className={`scSurfaceOutline ${showTransparentMark ? "scSurfaceOutline--strong" : ""}`} />
+            {shape === "round" ? (
+              <img
+                src={imageUrl}
+                alt="Sticker"
+                className="scImg scImgContain scImgRoundBox"
+                style={roundImgBoxStyleVars}
+                crossOrigin="anonymous"
+              />
+            ) : shape === "oval" || shape === "oval_portrait" ? (
+              <img src={imageUrl} alt="Sticker" className="scImg scImgContain scImgOvalBox" crossOrigin="anonymous" />
             ) : (
-              <div style={fixedShapeSurfaceStyle}>
-                {fixedShapeOutlineStyle ? <div style={fixedShapeOutlineStyle} /> : null}
-
-                {shape === "round" ? (
-                  <img
-                    src={imageUrl}
-                    alt="Sticker"
-                    style={{ ...roundImgBoxStyle, display: "block", objectFit: "contain", background: "transparent" }}
-                    crossOrigin="anonymous"
-                  />
-                ) : shape === "oval" || shape === "oval_portrait" ? (
-                  <img src={imageUrl} alt="Sticker" style={{ ...ovalImgBoxStyle, objectFit: "contain", background: "transparent" }} crossOrigin="anonymous" />
-                ) : (
-                  <img
-                    src={imageUrl}
-                    alt="Sticker"
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "contain",
-                      background: "transparent",
-                      opacity: 1,
-                    }}
-                    crossOrigin="anonymous"
-                  />
-                )}
-              </div>
+              <img src={imageUrl} alt="Sticker" className="scImg scImgContain" crossOrigin="anonymous" />
             )}
           </div>
         )}
+      </div>
+    );
+  }
+
+  // ==============================
+  // ✅ CSS vars + Layout
+  // ==============================
+  return (
+    <div className={`scWrap ${isMobile ? "is-mobile" : "is-desktop"}`}>
+      <style dangerouslySetInnerHTML={{ __html: SC_CSS }} />
+
+      {/* Mobile: Preview oben, Config unten (via order in CSS) */}
+      <div className="scLeft">{renderConfigurator()}</div>
+
+      <div ref={rightPanelRef} className="scRight">
+        {renderPreview()}
       </div>
     </div>
   );
 }
 
-const styles = {
-  wrapper: {
-    width: "100%",
-    maxWidth: 980,
-    margin: "0 auto",
-    display: "grid",
-    gridTemplateColumns: "260px 1fr",
-    gap: 0,
-    borderRadius: 22,
-    overflow: "hidden",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
-    background: "#0b0f16",
-  },
-  leftPanel: {
-    padding: 18,
-    background: "#0b0f16",
-    color: "#fff",
-    borderRight: "1px solid rgba(255,255,255,0.08)",
-  },
-  rightPanel: {
-    minHeight: 520,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  sectionTitle: { fontSize: 14, opacity: 0.9, marginBottom: 6 },
-  label: { fontSize: 13, opacity: 0.85, marginTop: 14, marginBottom: 6 },
-  select: {
-    padding: "10px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "#0e1624",
-    color: "#fff",
-    outline: "none",
-  },
-  input: {
-    padding: "10px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "#0e1624",
-    color: "#fff",
-    outline: "none",
-  },
-  color: {
-    width: 86,
-    height: 36,
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "transparent",
-    padding: 0,
-  },
-  divider: { height: 1, background: "rgba(255,255,255,0.10)", margin: "14px 0" },
-  statLine: {
-    display: "flex",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    gap: 10,
-    padding: "6px 0",
-  },
-  statLabel: { fontSize: 13, opacity: 0.9 },
-  statValue: { fontSize: 14, fontWeight: 700 },
-  primaryBtn: {
-    width: "100%",
-    marginTop: 12,
-    padding: "12px 14px",
-    borderRadius: 999,
-    border: "none",
-    background: "#16a34a",
-    color: "#fff",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  secondaryBtn: {
-    width: "100%",
-    marginTop: 10,
-    padding: "11px 14px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.06)",
-    color: "#fff",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
+// ==============================
+// CSS (self-contained)
+// ==============================
+const SC_CSS = `
+/* Root */
+.scWrap{
+  --bg: #0b0f16;
+  --panel: #0b0f16;
+  --card: rgba(255,255,255,0.04);
+  --border: rgba(255,255,255,0.10);
+  --border2: rgba(255,255,255,0.16);
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.72);
+  --muted2: rgba(255,255,255,0.56);
+  --shadow: 0 20px 60px rgba(0,0,0,0.45);
 
-  /* ✅ Patch: Empty-State Block im Preview-Bereich */
-  emptyUploadWrap: {
-    width: "100%",
-    maxWidth: 520,
-    display: "grid",
-    gap: 12,
-    justifyItems: "center",
-    alignContent: "center",
-    textAlign: "center",
-    padding: 18,
-  },
-  uploadHeroBtn: {
-    width: "100%",
-    maxWidth: 520,
-    padding: "12px 14px",
-    borderRadius: 999,
-    border: "none",
-    background: "#e10600",
-    color: "#fff",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  emptySubHint: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 12,
-    maxWidth: 520,
-    lineHeight: 1.35,
-  },
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: var(--shadow);
 
-  errorBox: {
-    marginTop: 12,
-    padding: 10,
-    borderRadius: 12,
-    background: "rgba(239, 68, 68, 0.12)",
-    border: "1px solid rgba(239, 68, 68, 0.35)",
-    color: "#fecaca",
-    fontSize: 12,
-    whiteSpace: "pre-wrap",
-  },
-  emptyHint: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 14,
-    textAlign: "center",
-    maxWidth: 420,
-    lineHeight: 1.4,
-  },
-};
+  display: grid;
+  grid-template-columns: 40% 60%;
+  min-height: 520px;
+}
+
+/* Desktop */
+.scWrap.is-desktop .scLeft{
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+
+/* Mobile */
+@media (max-width: 900px){
+  .scWrap{
+    grid-template-columns: 1fr;
+  }
+  .scRight{
+    order: -1; /* Preview oben */
+    min-height: clamp(260px, 42vh, 520px);
+  }
+  .scLeft{
+    border-top: 1px solid rgba(255,255,255,0.08);
+    border-right: none !important;
+  }
+}
+
+/* Panels */
+.scLeft{
+  padding: 16px;
+  background: var(--panel);
+  color: #fff;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+@media (max-width: 900px){
+  .scLeft{
+    padding: 14px;
+    gap: 12px;
+  }
+}
+
+.scRight{
+  background: var(--bg);
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 520px;
+}
+
+@media (max-width: 900px){
+  .scRight{
+    padding: 14px;
+  }
+}
+
+/* Fields */
+.scBlock{ display:grid; gap: 10px; }
+.scField{ display:grid; gap: 6px; }
+.scLabel{ font-size: 13px; color: var(--muted); }
+
+@media (max-width: 900px){
+  .scLabel{ font-size: 14px; }
+}
+
+.scSelect{
+  width: 100%;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: #0e1624;
+  color: #fff;
+  outline: none;
+  font-size: 14px;
+}
+
+@media (max-width: 900px){
+  .scSelect{
+    padding: 14px 12px;
+    font-size: 16px; /* iOS zoom fix */
+  }
+}
+
+.scFieldRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+}
+
+.scColor{
+  width: 96px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: transparent;
+  padding: 0;
+}
+
+/* Divider */
+.scDivider{
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+  margin: 6px 0;
+}
+
+/* Stats */
+.scStats{ display:grid; gap: 6px; }
+.scStatLine{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap: 10px;
+  padding: 4px 0;
+}
+.scStatLabel{ font-size: 13px; color: var(--muted); }
+.scStatValue{ font-size: 14px; font-weight: 800; color: #fff; }
+
+/* Buttons */
+.scBtn{
+  width: 100%;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+@media (max-width: 900px){
+  .scBtn{
+    padding: 14px 14px;
+    font-size: 16px;
+  }
+}
+
+.scBtnPrimary{
+  background: #16a34a;
+  color: #fff;
+}
+.scBtnPrimary:disabled{
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.scBtnSecondary{
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+}
+
+.scBtnHero{
+  background: #e10600;
+  color: #fff;
+  max-width: 520px;
+}
+
+.scCheck{
+  display:flex;
+  gap: 10px;
+  align-items:center;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.scCheck input{ transform: scale(1.05); }
+
+@media (max-width: 900px){
+  .scCheck{ font-size: 14px; }
+}
+
+/* Messages */
+.scInfo{
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.85);
+}
+
+.scError{
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fecaca;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* Hidden file */
+.scHiddenFile{ display:none; }
+
+/* Empty state */
+.scEmpty{
+  width: 100%;
+  max-width: 520px;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  align-content: center;
+  text-align: center;
+  padding: 14px;
+}
+.scEmptyHint{
+  color: rgba(255,255,255,0.78);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.scEmptySub{
+  color: rgba(255,255,255,0.56);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* Preview Frame (dynamic via CSS vars) */
+.scPreviewFrame{
+  width: var(--scFrameW, 520px);
+  height: var(--scFrameH, 520px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position: relative;
+}
+
+/* Fixed shapes surface */
+.scSurface{
+  width: var(--scSurfW, 460px);
+  height: var(--scSurfH, 460px);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  background: var(--scSurfBg, transparent);
+  filter: drop-shadow(0 10px 28px rgba(0,0,0,0.45));
+  position: relative;
+}
+.scSurface--round{ border-radius: 50%; }
+.scSurface--oval{ border-radius: 50%; clip-path: ellipse(50% 50% at 50% 50%); }
+.scSurface--rounded{ border-radius: 28px; }
+
+.scSurfaceOutline{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.18);
+}
+.scSurfaceOutline--strong{
+  border: 1px solid rgba(255,255,255,0.28);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.28);
+}
+
+/* Images */
+.scImg{ display:block; width:100%; height:100%; background: transparent; }
+.scImgContain{ object-fit: contain; }
+
+.scImgRoundBox{
+  width: var(--scRoundW, 100%);
+  height: var(--scRoundH, 100%);
+  max-width: 100%;
+  max-height: 100%;
+}
+.scImgOvalBox{
+  width: 70.71%;
+  height: 70.71%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Freeform box */
+.scFreeformBox{
+  width: var(--scFrameW, 520px);
+  height: var(--scFrameH, 520px);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  position: relative;
+  background: transparent;
+}
+
+/* Checkerboard pattern */
+.scTransparentMask{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background-color: rgba(255,255,255,0.09);
+  background-image:
+    linear-gradient(45deg, rgba(0,0,0,0.14) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.14) 75%, rgba(0,0,0,0.14)),
+    linear-gradient(45deg, rgba(0,0,0,0.14) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.14) 75%, rgba(0,0,0,0.14));
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+  opacity: 1;
+}
+
+/* Freeform image enhance for transparent */
+.scImg--ffEnhance{
+  filter: drop-shadow(0 0 0.9px rgba(255,255,255,0.70)) drop-shadow(0 8px 22px rgba(0,0,0,0.45));
+}
+`;
