@@ -1,32 +1,21 @@
 /* =========================================================
-   sticker-embed.css
-   - Theme/App-Embed stylesheet
-   - IMPORTANT: Do NOT apply layout rules to the React root via
-     selectors like ".sticker-embed-react-root > *".
-     Those rules caused the "everything shifted" desktop layout.
-
-   This file now only contains:
-   1) CTA button styling
-   2) (optional) modal styling used by the embed wrapper
-
-   The actual configurator layout is scoped & injected by
-   StickerCanvasClient.jsx (classes .scWrap, .scLeft, .scRight, ...).
+   Sticker Embed CSS (robust)
+   - Modal-Visibility sicher über aria-hidden / open-Klassen
+   - Keine Layout-Annahmen (kein nth-child)
+   - Layout passiert im React-UI (StickerCanvasClient)
    ========================================================= */
 
-/* =========================================================
-   ✅ CTA Button: full width + strong red
-   ========================================================= */
+/* ---------- CTA Button im Produktbereich ---------- */
 .sticker-embed-button{
   width: 100% !important;
   display: block;
   box-sizing: border-box;
-
   padding: 14px 16px;
   border-radius: 999px;
   border: 0 !important;
   background: #e10600 !important;
   color: #fff !important;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   text-align: center;
 }
@@ -38,61 +27,113 @@
   outline-offset: 3px;
 }
 
+/* ---------- Body lock (optional) ---------- */
+body.sc-lock{ overflow: hidden !important; }
+
 /* =========================================================
-   Modal (optional)
+   Modal: Sichtbarkeit
+   Shopify / eigenes Script toggelt je nach Version:
+   - aria-hidden="false"
+   - .sticker-embed-modal--open
+   - .sticker-embed-modal-open
    ========================================================= */
-.sticker-embed-modal{
+
+/* Default: verborgen (damit nichts „unsichtbar aber im Flow“ liegt) */
+.sticker-embed-modal[aria-hidden="true"],
+.sticker-embed-modal:not([aria-hidden]){
+  display: none;
+}
+
+/* Offen (robust) */
+.sticker-embed-modal[aria-hidden="false"],
+.sticker-embed-modal--open,
+.sticker-embed-modal-open{
+  display: block;
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+  background: #0b0f14 !important;
+  z-index: 2147483647 !important;
+}
+
+/* In Modal: React UI soll wirklich fullscreen ausfüllen (keine max-width Card) */
+.sticker-embed-modal[aria-hidden="false"] .scWrap,
+.sticker-embed-modal--open .scWrap,
+.sticker-embed-modal-open .scWrap{
+  max-width: none !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Backdrop (falls vorhanden) */
+.sticker-embed-backdrop,
+.sticker-embed-backdrop-open,
+.sc-modalOverlay{
   position: fixed;
   inset: 0;
-  z-index: 9999;
-  display: grid;
-  place-items: center;
+  width: 100vw;
+  height: 100dvh;
+  background: rgba(0,0,0,.55);
+  z-index: 2147483646;
 }
 
-.sticker-embed-modal__overlay{
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.65);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-}
-
-.sticker-embed-modal__dialog{
-  position: relative;
-  width: min(1100px, 96vw);
-  max-height: min(92vh, 920px);
-  border-radius: 18px;
-  overflow: hidden;
-  background: #0b0f16;
-  box-shadow: 0 25px 70px rgba(0,0,0,0.55);
-  border: 1px solid rgba(255,255,255,0.10);
-}
-
-.sticker-embed-modal__body{
-  max-height: min(92vh, 920px);
-  overflow: auto;
-}
-
-.sticker-embed-modal__close{
-  position: absolute;
+/* Close Button (falls vorhanden) */
+.sc-modalClose,
+.sticker-embed-modal .sc-modalClose,
+.sticker-embed-modal .sticker-embed-modal-close{
+  position: fixed;
   top: 10px;
-  right: 10px;
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255,255,255,.08);
   color: #fff;
+  font-size: 26px;
+  line-height: 1;
   cursor: pointer;
+  z-index: 2147483647;
 }
 
-.sticker-embed-modal__close:hover{ filter: brightness(1.08); }
+/* =========================================================
+   Modal-Innenleben: React Root muss volle Fläche bekommen
+   (damit dein UI überhaupt sichtbar ist)
+   ========================================================= */
 
-@media (max-width: 900px){
-  .sticker-embed-modal__dialog{
-    width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
-    border-radius: 0;
-  }
+.sticker-embed-dialog,
+.sticker-embed-modal-body,
+.sc-modalBody{
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+}
+
+.sticker-embed-react-root{
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Verhindert, dass Theme-Styles "button{width:...}" etc. das UI kaputt machen */
+.sticker-embed-modal button,
+.sticker-embed-modal select,
+.sticker-embed-modal input{
+  max-width: 100%;
 }
