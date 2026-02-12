@@ -137,3 +137,94 @@ body.sc-lock{ overflow: hidden !important; }
 .sticker-embed-modal input{
   max-width: 100%;
 }
+/* =========================================================
+   ✅ MOBILE FIX: 50/50 Preview + Settings + Scroll (iOS Safari)
+   - Preview oben (50vh)
+   - Konfigurator unten (50vh) + scrollbar
+   ========================================================= */
+
+@media (max-width: 900px) {
+  /* Wichtig: Eltern dürfen Scroll nicht "abschneiden" */
+  body.sc-overlay-open,
+  body.sc-lock {
+    overflow: hidden !important;
+  }
+
+  #sc-modal-root.sc-open,
+  #sc-modal-root.sc-open .sticker-embed-modal,
+  #sc-modal-root.sc-open .sticker-embed-dialog,
+  #sc-modal-root.sc-open .sticker-embed-react-root {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* 50/50 Split */
+  #sc-modal-root.sc-open .sticker-embed-react-root,
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal .sticker-embed-modal-body,
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal .sc-modalBody {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 50dvh 50dvh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* ✅ Preview (oben) */
+  #sc-modal-root.sc-open .sticker-embed-react-root > *:nth-child(2),
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal
+    .sticker-embed-modal-body > *:nth-child(2),
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal
+    .sc-modalBody > *:nth-child(2) {
+    grid-row: 1 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 14px !important;
+  }
+
+  /* ✅ Settings (unten) -> MUSS scrollen können */
+  #sc-modal-root.sc-open .sticker-embed-react-root > *:nth-child(1),
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal
+    .sticker-embed-modal-body > *:nth-child(1),
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal
+    .sc-modalBody > *:nth-child(1) {
+    grid-row: 2 !important;
+
+    /* das ist der entscheidende Teil */
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+
+    border-top: 1px solid rgba(255,255,255,0.08) !important;
+    background: rgba(10, 14, 20, 0.92) !important;
+    backdrop-filter: blur(10px);
+
+    padding: 14px 14px calc(18px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Optional: bessere Touch-Usability */
+  #sc-modal-root.sc-open .sticker-embed-react-root > *:nth-child(1) * {
+    scroll-margin-top: 12px;
+  }
+
+  /* Buttons full width (mobile) */
+  #sc-modal-root.sc-open .sticker-embed-react-root button,
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal button {
+    width: 100% !important;
+  }
+}
+
+/* sehr kleine Höhen: Preview etwas weniger, damit Settings mehr Platz haben */
+@media (max-width: 900px) and (max-height: 720px) {
+  #sc-modal-root.sc-open .sticker-embed-react-root,
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal .sticker-embed-modal-body,
+  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal .sc-modalBody {
+    grid-template-rows: 44dvh 56dvh !important;
+  }
+}
