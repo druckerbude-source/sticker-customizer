@@ -150,6 +150,7 @@ body.sc-lock{ overflow: hidden !important; }
     overflow: hidden !important;
   }
 
+  /* Modal nimmt volle Höhe ein */
   #sc-modal-root.sc-open,
   #sc-modal-root.sc-open .sticker-embed-modal,
   #sc-modal-root.sc-open .sticker-embed-dialog,
@@ -160,42 +161,44 @@ body.sc-lock{ overflow: hidden !important; }
     overflow: hidden !important;
   }
 
-  /* 50/50 Split */
-  #sc-modal-root.sc-open .sticker-embed-react-root,
-  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal .sticker-embed-modal-body,
-  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal .sc-modalBody {
+  /* ✅ WICHTIG: Keine nth-child-Logik, weil im React-Root ein <style> Tag als erstes Kind sitzt.
+     Stattdessen direkt die bekannten Klassen aus StickerCanvasClient.jsx adressieren. */
+
+  /* Container: oben Preview (fix), unten Settings (scroll) */
+  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    min-height: 0 !important;
+
+    /* überschreibt Desktop-Grid (40/60) */
     display: grid !important;
     grid-template-columns: 1fr !important;
     grid-template-rows: 50dvh 50dvh !important;
-    height: 100dvh !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
   }
 
-  /* ✅ Preview (oben) */
-  #sc-modal-root.sc-open .sticker-embed-react-root > *:nth-child(2),
-  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal
-    .sticker-embed-modal-body > *:nth-child(2),
-  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal
-    .sc-modalBody > *:nth-child(2) {
+  /* Preview oben – bleibt fest */
+  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap .scRight {
     grid-row: 1 !important;
+    order: 0 !important;
     min-height: 0 !important;
+    height: 50dvh !important;
     overflow: hidden !important;
+
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     padding: 14px !important;
   }
 
-  /* ✅ Settings (unten) -> MUSS scrollen können */
-  #sc-modal-root.sc-open .sticker-embed-react-root > *:nth-child(1),
-  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal
-    .sticker-embed-modal-body > *:nth-child(1),
-  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal
-    .sc-modalBody > *:nth-child(1) {
+  /* Settings unten – nur dieser Bereich scrollt */
+  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap .scLeft {
     grid-row: 2 !important;
+    order: 0 !important;
 
-    /* das ist der entscheidende Teil */
     min-height: 0 !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
@@ -209,7 +212,7 @@ body.sc-lock{ overflow: hidden !important; }
   }
 
   /* Optional: bessere Touch-Usability */
-  #sc-modal-root.sc-open .sticker-embed-react-root > *:nth-child(1) * {
+  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap .scLeft * {
     scroll-margin-top: 12px;
   }
 
@@ -222,9 +225,10 @@ body.sc-lock{ overflow: hidden !important; }
 
 /* sehr kleine Höhen: Preview etwas weniger, damit Settings mehr Platz haben */
 @media (max-width: 900px) and (max-height: 720px) {
-  #sc-modal-root.sc-open .sticker-embed-react-root,
-  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal .sticker-embed-modal-body,
-  body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal .sc-modalBody {
+  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap {
     grid-template-rows: 44dvh 56dvh !important;
+  }
+  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap .scRight {
+    height: 44dvh !important;
   }
 }
