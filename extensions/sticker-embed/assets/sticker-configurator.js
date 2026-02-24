@@ -359,4 +359,55 @@ Error generating stack: `+i.message+`
 .scImg--ffEnhance{
   filter: drop-shadow(0 0 0.9px rgba(255,255,255,0.70)) drop-shadow(0 8px 22px rgba(0,0,0,0.45));
 }
+  /* =========================================================
+   ✅ FIX: Verzogene/komische Preview in Grid/Flex/Accordions
+   ========================================================= */
+.scWrap > .scLeft,
+.scWrap > .scRight{
+  min-width: 0 !important;
+  min-height: 0 !important;
+}
+
+.scRight{
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+}
+
+.scPreviewFrame{
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scFreeformBox{
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scImg{
+  max-width: 100%;
+  max-height: 100%;
+  height: 100%;
+  width: 100%;
+}
+
+.scSurface{
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 900px){
+  .scRight{
+    height: clamp(260px, 42vh, 520px);
+    min-height: 0;
+  }
+}
 `;function Yh(e){return typeof e=="number"||typeof e=="string"?{productId:Number(e)||0}:e&&typeof e=="object"?{productId:Number(e.productId)||0,initialVariantId:Number(e.initialVariantId)||0,pricingVariantId:Number(e.pricingVariantId)||0,apiBase:typeof e.apiBase=="string"&&e.apiBase?e.apiBase:void 0,shapeHandles:e.shapeHandles&&typeof e.shapeHandles=="object"?e.shapeHandles:void 0}:{productId:0}}function Gh(e){return JSON.stringify({productId:e.productId||0,initialVariantId:e.initialVariantId||0,pricingVariantId:e.pricingVariantId||0,apiBase:e.apiBase||"",shapeHandles:e.shapeHandles||null})}window.renderStickerConfigurator=(e,t)=>{if(!e)return;const n=Yh(t),r=e.__stickerRoot,l=Gh(n);if(r){if(e.__stickerPropsKey===l)return;e.__stickerPropsKey=l,r.render(F.jsx(oc,{...n}));return}const i=Sd(e);e.__stickerRoot=i,e.__stickerPropsKey=l,i.render(F.jsx(oc,{...n}))};
