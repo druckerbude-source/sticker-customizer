@@ -1118,24 +1118,66 @@ export default function StickerCanvasClient({
   const rightPanelRef = useRef(null);
   const [rightBox, setRightBox] = useState({ w: 900, h: 600 });
 
-  useEffect(() => {
+    useEffect(() => {
     if (typeof window === "undefined") return;
     const el = rightPanelRef.current;
-    if (!el || !("ResizeObserver" in window)) return;
+    if (!el) return;
 
-    const ro = new ResizeObserver((entries) => {
-      const r = entries?.[0]?.contentRect;
-      if (!r) return;
-      setRightBox((prev) => {
-        const w = Math.max(200, Math.round(r.width || 0));
-        const h = Math.max(200, Math.round(r.height || 0));
-        if (prev.w === w && prev.h === h) return prev;
-        return { w, h };
-      });
+    const clampWH = (w, h) => ({
+      w: Math.max(200, Math.round(w || 0)),
+      h: Math.max(200, Math.round(h || 0)),
     });
 
-    ro.observe(el);
-    return () => ro.disconnect();
+    const measure = () => {
+      const r = el.getBoundingClientRect?.();
+      if (!r) return;
+
+      // Nur updaten, wenn wirklich sinnvoll > 0
+      if (r.width > 0 && r.height > 0) {
+        const next = clampWH(r.width, r.height);
+        setRightBox((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
+      }
+    };
+
+    // 1) Sofort messen (auch wenn ResizeObserver noch nicht feuert)
+    measure();
+
+    // 2) ResizeObserver (normaler Weg)
+    let ro = null;
+    if ("ResizeObserver" in window) {
+      ro = new ResizeObserver((entries) => {
+        const r = entries?.[0]?.contentRect;
+        if (!r) return;
+        const next = clampWH(r.width, r.height);
+        setRightBox((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
+      });
+      ro.observe(el);
+    }
+
+    // 3) Kick für Fälle: Accordion/Tab/Modal wird erst später sichtbar
+    let raf = 0;
+    let rafCount = 0;
+    const rafKick = () => {
+      rafCount += 1;
+      measure();
+      // ~1 Sekunde bei 60fps
+      if (rafCount < 60) raf = requestAnimationFrame(rafKick);
+    };
+    raf = requestAnimationFrame(rafKick);
+
+    // 4) <details> / Accordion Toggle Event abfangen (capturing, damit es auch in Themes greift)
+    const onToggle = () => measure();
+    document.addEventListener("toggle", onToggle, true);
+
+    // 5) Orientation/Viewport-Wechsel (Mobile)
+    window.addEventListener("orientationchange", measure, { passive: true });
+
+    return () => {
+      if (ro) ro.disconnect();
+      cancelAnimationFrame(raf);
+      document.removeEventListener("toggle", onToggle, true);
+      window.removeEventListener("orientationchange", measure);
+    };
   }, []);
 
   // ✅ helper: "aktive" Maße
