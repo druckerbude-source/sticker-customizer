@@ -4,14 +4,14 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
  * StickerCanvasClient.jsx
  * - Self-contained (no relative imports)
  *
- * ✅ Layout/CSS Refactor (dieser Patch):
- * - Responsive Layout via CSS (Desktop: 40/60, Mobile: oben Preview, unten Konfigurator)
- * - Preview koppelt sich automatisch an die rechte Panel-Breite (ResizeObserver)
- * - Inline-Styles weitgehend entfernt → saubere CSS-Klassen + CSS-Variablen für dynamische Maße
- * - Mobile optimiert (größere Touch-Ziele, sinnvollere Abstände, Preview-Höhe, Panels ohne starre minHeight)
+ * ✅ Patch in dieser Austauschdatei:
+ * - Cutline (UI-only) wird NUR bei Hintergrund "Weiß" und "Farbig" angezeigt (NICHT bei Transparent)
+ * - Betrifft Freiform + feste Formen
+ * - Umsetzung: CSS-Klasse scCutline + Schalter shouldShowCutline
  *
  * Hinweis:
- * - Einige wenige dynamische Styles bleiben als CSS-Variablen (Breite/Höhe der Preview, Mask-Image URL etc.).
+ * - Deine Transparent-Option ist im Dropdown aktuell auskommentiert. Falls du sie später aktivierst,
+ *   bleibt die Cutline dort trotzdem aus (wie gewünscht).
  */
 
 // ==============================
@@ -1053,6 +1053,9 @@ export default function StickerCanvasClient({
     if (bgMode === "white") setBgColor("#ffffff");
   }, [bgMode]);
 
+  // ✅ Cutline nur für "white" und "color" (farbig)
+  const shouldShowCutline = useMemo(() => bgMode === "white" || bgMode === "color", [bgMode]);
+
   const [imageUrl, setImageUrl] = useState(defaultImageUrl || "");
   const [uploadedUrl, setUploadedUrl] = useState(() =>
     defaultImageUrl && isProbablyRemoteUrl(defaultImageUrl) ? defaultImageUrl : ""
@@ -1118,7 +1121,7 @@ export default function StickerCanvasClient({
   const rightPanelRef = useRef(null);
   const [rightBox, setRightBox] = useState({ w: 900, h: 600 });
 
-    useEffect(() => {
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const el = rightPanelRef.current;
     if (!el) return;
@@ -1132,17 +1135,14 @@ export default function StickerCanvasClient({
       const r = el.getBoundingClientRect?.();
       if (!r) return;
 
-      // Nur updaten, wenn wirklich sinnvoll > 0
       if (r.width > 0 && r.height > 0) {
         const next = clampWH(r.width, r.height);
         setRightBox((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
       }
     };
 
-    // 1) Sofort messen (auch wenn ResizeObserver noch nicht feuert)
     measure();
 
-    // 2) ResizeObserver (normaler Weg)
     let ro = null;
     if ("ResizeObserver" in window) {
       ro = new ResizeObserver((entries) => {
@@ -1154,22 +1154,17 @@ export default function StickerCanvasClient({
       ro.observe(el);
     }
 
-    // 3) Kick für Fälle: Accordion/Tab/Modal wird erst später sichtbar
     let raf = 0;
     let rafCount = 0;
     const rafKick = () => {
       rafCount += 1;
       measure();
-      // ~1 Sekunde bei 60fps
       if (rafCount < 60) raf = requestAnimationFrame(rafKick);
     };
     raf = requestAnimationFrame(rafKick);
 
-    // 4) <details> / Accordion Toggle Event abfangen (capturing, damit es auch in Themes greift)
     const onToggle = () => measure();
     document.addEventListener("toggle", onToggle, true);
-
-    // 5) Orientation/Viewport-Wechsel (Mobile)
     window.addEventListener("orientationchange", measure, { passive: true });
 
     return () => {
@@ -1503,7 +1498,6 @@ export default function StickerCanvasClient({
 
   const variantInfoCacheRef = useRef(new Map());
   const variantInfoInFlightRef = useRef(new Map());
-  const lastVariantFetchVidRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1534,7 +1528,6 @@ export default function StickerCanvasClient({
         cancelled = true;
       };
     }
-    lastVariantFetchVidRef.current = vid;
 
     const controller = new AbortController();
 
@@ -2399,7 +2392,6 @@ export default function StickerCanvasClient({
   // ✅ Preview-Dims: an Right Panel koppeln
   // ==============================
   const previewDims = useMemo(() => {
-    // Panel-Insets (CSS padding): Desktop 24px, Mobile 14px (siehe CSS)
     const pad = isMobile ? 14 : 24;
 
     const maxW = Math.max(240, (rightBox.w || vp.w) - pad * 2);
@@ -2467,7 +2459,7 @@ export default function StickerCanvasClient({
     return { "--scRoundW": `${wp}%`, "--scRoundH": `${hp}%` };
   }, [widthCm, heightCm]);
 
-  // ✅ Transparenz-Checker: per CSS Class
+  // ✅ Transparenz-Checker (wird aktuell nicht genutzt, da Transparent auskommentiert)
   const showTransparentMark = useMemo(() => bgMode === "transparent", [bgMode]);
 
   // ✅ Freiform Mask-Overlay braucht dynamische URL
@@ -2487,8 +2479,6 @@ export default function StickerCanvasClient({
       maskSize: "contain",
     };
   }, [showTransparentMark, shape, displaySrc]);
-
-  const normalizedDisplayImageUrl2 = normalizedDisplayImageUrl; // keep reference
 
   // ==============================
   // Render Helpers
@@ -2670,9 +2660,7 @@ export default function StickerCanvasClient({
             {uploading ? "Upload…" : "Bild hochladen"}
           </button>
 
-          <div className="scEmptySub">
-            Tipp: PNG mit transparentem Hintergrund funktioniert am besten.
-          </div>
+          <div className="scEmptySub">Tipp: PNG mit transparentem Hintergrund funktioniert am besten.</div>
         </div>
       );
     }
@@ -2685,13 +2673,14 @@ export default function StickerCanvasClient({
       return "scSurface";
     })();
 
-    const surfaceStyleVars = shape === "freeform"
-      ? {}
-      : {
-          "--scSurfW": `${fixedSurfaceDims.w}px`,
-          "--scSurfH": `${fixedSurfaceDims.h}px`,
-          "--scSurfBg": hasBgFill ? bgColorEff : showTransparentMark ? "rgba(255,255,255,0.06)" : "transparent",
-        };
+    const surfaceStyleVars =
+      shape === "freeform"
+        ? {}
+        : {
+            "--scSurfW": `${fixedSurfaceDims.w}px`,
+            "--scSurfH": `${fixedSurfaceDims.h}px`,
+            "--scSurfBg": hasBgFill ? bgColorEff : showTransparentMark ? "rgba(255,255,255,0.06)" : "transparent",
+          };
 
     const frameVars = {
       "--scFrameW": `${previewDims.w}px`,
@@ -2706,16 +2695,21 @@ export default function StickerCanvasClient({
               <div className="scTransparentMask" style={freeformMaskStyle || undefined} />
             ) : null}
 
+            {/* ✅ Cutline NUR bei Weiß/Farbig */}
             <img
               src={displaySrc}
               alt="Sticker"
-              className={`scImg scImgContain ${showTransparentMark ? "scImg--ffEnhance" : ""}`}
+              className={`scImg scImgContain ${shouldShowCutline ? "scCutline" : ""}`}
               crossOrigin="anonymous"
             />
           </div>
         ) : (
           <div className={fixedSurfaceClass} style={surfaceStyleVars}>
+            {/* ✅ Cutline NUR bei Weiß/Farbig */}
+            {shouldShowCutline ? <div className="scCutlineOverlay" /> : null}
+
             <div className={`scSurfaceOutline ${showTransparentMark ? "scSurfaceOutline--strong" : ""}`} />
+
             {shape === "round" ? (
               <img
                 src={imageUrl}
@@ -2742,7 +2736,6 @@ export default function StickerCanvasClient({
     <div className={`scWrap ${isMobile ? "is-mobile" : "is-desktop"}`}>
       <style dangerouslySetInnerHTML={{ __html: SC_CSS }} />
 
-      {/* Mobile: Preview oben, Config unten (via order in CSS) */}
       <div className="scLeft">{renderConfigurator()}</div>
 
       <div ref={rightPanelRef} className="scRight">
@@ -3059,7 +3052,7 @@ const SC_CSS = `
   background: transparent;
 }
 
-/* Checkerboard pattern */
+/* Checkerboard pattern (nur relevant, wenn Transparent aktiviert wird) */
 .scTransparentMask{
   position:absolute;
   inset:0;
@@ -3073,8 +3066,31 @@ const SC_CSS = `
   opacity: 1;
 }
 
-/* Freeform image enhance for transparent */
-.scImg--ffEnhance{
-  filter: drop-shadow(0 0 0.9px rgba(255,255,255,0.70)) drop-shadow(0 8px 22px rgba(0,0,0,0.45));
+/* =========================================================
+   ✅ Cutline (UI-only)
+   - NUR aktiv, wenn Klasse gesetzt wird (shouldShowCutline)
+   - Wir nutzen drop-shadow mehrfach, weil das sauber an Alpha-Kanten hängt.
+   ========================================================= */
+
+/* Freiform: direkt auf dem <img> */
+.scCutline{
+  filter:
+    drop-shadow( 1px  0px 0 rgba(0,0,0,0.72))
+    drop-shadow(-1px  0px 0 rgba(0,0,0,0.72))
+    drop-shadow( 0px  1px 0 rgba(0,0,0,0.72))
+    drop-shadow( 0px -1px 0 rgba(0,0,0,0.72))
+    drop-shadow( 0px  0px 1px rgba(255,255,255,0.30))
+    drop-shadow( 0px 10px 22px rgba(0,0,0,0.38));
+}
+
+/* Feste Formen: Overlay-Rand (dezent, „Cutline“-Anmutung) */
+.scCutlineOverlay{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.70),
+    0 0 0 2px rgba(255,255,255,0.20);
 }
 `;
