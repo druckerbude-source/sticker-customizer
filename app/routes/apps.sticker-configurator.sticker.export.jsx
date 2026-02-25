@@ -8,9 +8,6 @@ import { uploadBufferAsShopifyFile } from "../lib/shopifyFiles.server";
 // ==============================
 // Performance-Schalter
 // ==============================
-// Shopify-File-Upload kostet Zeit (Netzwerk + Verarbeitung).
-// ABER: Lokale URLs unter /exports/... sind auf dem Shopify-Storefront NICHT verfügbar.
-// => Deshalb in Production: SVG standardmäßig zu Shopify hochladen (stabile CDN-URL).
 const DEFAULT_UPLOAD_PNG_TO_SHOPIFY = false;
 const DEFAULT_UPLOAD_SVG_TO_SHOPIFY = process.env.NODE_ENV === "production";
 
@@ -33,19 +30,16 @@ function isAppProxyRequest(request) {
 async function getAdminClientOrThrow(request) {
   const auth = String(request.headers.get("authorization") || "");
 
-  // 1) Admin-Bearer Token -> admin auth (typisch für Embedded Admin)
   if (/^bearer\s+/i.test(auth)) {
     const { admin } = await authenticate.admin(request);
     return admin;
   }
 
-  // 2) App-Proxy -> appProxy auth (typisch für Storefront)
   if (isAppProxyRequest(request)) {
     const { admin } = await authenticate.public.appProxy(request);
     return admin;
   }
 
-  // 3) fallback
   const { admin } = await authenticate.admin(request);
   return admin;
 }
@@ -70,7 +64,6 @@ function clampInt(n, min, max) {
 }
 
 function approxBase64BytesLen(base64Str) {
-  // 4 chars ~ 3 bytes
   return Math.floor((base64Str.length * 3) / 4);
 }
 
@@ -114,6 +107,30 @@ function normalizeBgInput(bgMode, bgColor, exportTransparent) {
   return { mode, raw, hasFill };
 }
 
+// ==============================
+// ✅ Cutline helpers (PathD Sanitizer + Builder)
+// ==============================
+function sanitizeSvgPathD(d) {
+  const s = String(d || "").trim();
+  if (!s) return "";
+  // Whitelist: SVG path commands + numbers + separators
+  // (verhindert, dass jemand z.B. "><script" reinschiebt)
+  const ok = /^[0-9a-zA-Z\s,.\-+eE]*$/.test(s);
+  if (!ok) return "";
+  // Muss zumindest ein Move enthalten, sonst sinnlos
+  if (!/[mM]/.test(s)) return "";
+  return s;
+}
+
+function buildCutlinePathTag({ d, strokePx, color = "#ff00ff" }) {
+  const dd = sanitizeSvgPathD(d);
+  if (!dd) return "";
+  const sw = Math.max(0.5, Number(strokePx) || 2);
+  // vector-effect non-scaling-stroke ist ok, aber Shopify/SVG Viewer ignorieren das manchmal.
+  // Schaden tut’s nicht – Cutline bleibt sichtbar.
+  return `<path d="${dd}" fill="none" stroke="${color}" stroke-width="${sw}" vector-effect="non-scaling-stroke" />`;
+}
+
 export async function action({ request }) {
   if (request.method !== "POST") {
     return json({ ok: false, error: "Method not allowed" }, { status: 405 });
@@ -148,6 +165,11 @@ export async function action({ request }) {
       exportTransparent = false,
       fitMode,
 
+      // ✅ NEW: Cutline from Client (Vector)
+      cutlineEnabled = false,
+      cutlinePathD = "",
+      cutlineStrokePx = null,
+
       // Perf Flags (Client kann hier steuern)
       uploadPngToShopify = DEFAULT_UPLOAD_PNG_TO_SHOPIFY,
       uploadSvgToShopify = DEFAULT_UPLOAD_SVG_TO_SHOPIFY,
@@ -167,6 +189,9 @@ export async function action({ request }) {
         hasRenderedDataUrl: !!renderedDataUrl,
         uploadPngToShopify: !!uploadPngToShopify,
         uploadSvgToShopify: !!uploadSvgToShopify,
+        cutlineEnabled: !!cutlineEnabled,
+        hasCutlinePathD: !!String(cutlinePathD || "").trim(),
+        cutlineStrokePx,
       });
     }
 
@@ -215,8 +240,6 @@ export async function action({ request }) {
       const pngName = `${ts}-sticker.png`;
       const svgName = `${ts}-sticker.svg`;
 
-      // Lokale URLs sind in Shopify-Storefront NICHT zuverlässig erreichbar.
-      // Sie sind hier nur als Dev-Fallback nützlich.
       const localPngUrl = `${appBase}/exports/sticker-configurator/${pngName}`;
       const localSvgUrl = `${appBase}/exports/sticker-configurator/${svgName}`;
 
@@ -249,26 +272,33 @@ export async function action({ request }) {
 
       // 2) Cutline / Clip
       let cutPath = "";
-      const strokeW = Math.max(2, Math.round(Math.min(exportW, exportH) * 0.01));
+      const fallbackStrokeW = Math.max(2, Math.round(Math.min(exportW, exportH) * 0.01));
 
-      const freeformMask = typeof freeformCutMaskDataUrl === "string" ? freeformCutMaskDataUrl.trim() : "";
-      const freeformMaskOk = shapeKey === "freeform" && /^data:image\/png;base64,/.test(freeformMask);
+      // ✅ If client sent a vector cutline, prefer it
+      const wantsCutline = !!cutlineEnabled;
+      const cutlineD = sanitizeSvgPathD(cutlinePathD);
+      const strokeW = Number.isFinite(Number(cutlineStrokePx)) ? Number(cutlineStrokePx) : fallbackStrokeW;
 
-      if (shapeKey !== "freeform") {
-        if (shapeKey === "round") {
-          const r = Math.min(exportW, exportH) / 2;
-          const cx = exportW / 2;
-          const cy = exportH / 2;
-          cutPath = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`;
-        } else if (shapeKey === "oval") {
-          const cx = exportW / 2;
-          const cy = exportH / 2;
-          cutPath = `<ellipse cx="${cx}" cy="${cy}" rx="${exportW / 2}" ry="${exportH / 2}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`;
-        } else if (shapeKey === "rounded") {
-          const radius = Math.round(Math.min(exportW, exportH) * 0.2);
-          cutPath = `<rect x="0" y="0" width="${exportW}" height="${exportH}" rx="${radius}" ry="${radius}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`;
-        } else {
-          cutPath = `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`;
+      if (wantsCutline && cutlineD) {
+        cutPath = buildCutlinePathTag({ d: cutlineD, strokePx: strokeW, color: "#ff00ff" });
+      } else {
+        // Fallback: alte Shape-Cutlines
+        if (shapeKey !== "freeform") {
+          if (shapeKey === "round") {
+            const r = Math.min(exportW, exportH) / 2;
+            const cx = exportW / 2;
+            const cy = exportH / 2;
+            cutPath = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+          } else if (shapeKey === "oval") {
+            const cx = exportW / 2;
+            const cy = exportH / 2;
+            cutPath = `<ellipse cx="${cx}" cy="${cy}" rx="${exportW / 2}" ry="${exportH / 2}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+          } else if (shapeKey === "rounded") {
+            const radius = Math.round(Math.min(exportW, exportH) * 0.2);
+            cutPath = `<rect x="0" y="0" width="${exportW}" height="${exportH}" rx="${radius}" ry="${radius}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+          } else {
+            cutPath = `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+          }
         }
       }
 
@@ -278,10 +308,15 @@ export async function action({ request }) {
       let bgRect = "";
       let imageTag = "";
 
-      if (freeformMaskOk) {
+      // Freeform-Mask-Filter ist weiterhin als Fallback drin,
+      // aber wenn cutlinePathD vorhanden ist, brauchen wir den Filter NICHT mehr für die Cutline.
+      const freeformMask = typeof freeformCutMaskDataUrl === "string" ? freeformCutMaskDataUrl.trim() : "";
+      const freeformMaskOk = shapeKey === "freeform" && /^data:image\/png;base64,/.test(freeformMask);
+
+      if (freeformMaskOk && !(wantsCutline && cutlineD)) {
         const maskId = "ffmask_" + ts.toString(36);
         const cutFilterId = "ffcut_" + ts.toString(36);
-        const cutRadius = Math.max(1, Math.round(strokeW / 2));
+        const cutRadius = Math.max(1, Math.round(fallbackStrokeW / 2));
 
         defsExtra = `
 <defs>
@@ -299,10 +334,16 @@ export async function action({ request }) {
 
         bgRect = hasBgFill ? `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="${fill}" mask="url(#${maskId})" />` : "";
         imageTag = `<image href="${renderedDataUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="none" />`;
+
+        // Cutline via Filter (Fallback)
         cutPath = `<image href="${freeformMask}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="none" filter="url(#${cutFilterId})" />`;
       } else {
         bgRect = hasBgFill && shapeKey !== "freeform" ? `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="${fill}" />` : "";
-        imageTag = `<image href="${pngUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="${preserve}" />`;
+        // Bei Canvas-Mode ist renderedDataUrl "die Wahrheit" (keine CDN-Abhängigkeit)
+        imageTag = `<image href="${renderedDataUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="none" />`;
+
+        // Falls man lieber den Shopify-PNG-Link im SVG will:
+        // imageTag = `<image href="${pngUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="${preserve}" />`;
       }
 
       const svgContent = `<?xml version="1.0" encoding="UTF-8"?>
@@ -313,7 +354,7 @@ export async function action({ request }) {
   ${cutPath}
 </svg>`;
 
-      // 4) SVG (in Production default: Shopify, damit es im Warenkorb klickbar ist)
+      // 4) SVG Upload
       let svgUrl = localSvgUrl;
       let svgFileId = null;
 
@@ -334,7 +375,6 @@ export async function action({ request }) {
         }
       }
 
-      // Fallback: lokal schreiben (v.a. Dev)
       if (!svgFileId) {
         await fs.writeFile(path.join(EXPORT_DIR, svgName), svgContent, "utf8");
         svgUrl = localSvgUrl;
@@ -377,27 +417,39 @@ export async function action({ request }) {
     let clipShape = "";
     let cutPath = "";
 
-    if (shapeKey === "round") {
-      const cx = w / 2;
-      const cy = h / 2;
-      const r = Math.min(w, h) / 2;
-      clipShape = `<circle cx="${cx}" cy="${cy}" r="${r}" />`;
-      cutPath = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#ff00ff" stroke-width="${Math.min(w, h) * 0.01}" />`;
-    } else if (shapeKey === "oval") {
-      const cx = w / 2;
-      const cy = h / 2;
-      clipShape = `<ellipse cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}" />`;
-      cutPath = `<ellipse cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}" fill="none" stroke="#ff00ff" stroke-width="${Math.min(w, h) * 0.01}" />`;
-    } else if (shapeKey === "rounded") {
-      const radius = Math.min(w, h) * 0.2;
-      clipShape = `<rect x="0" y="0" width="${w}" height="${h}" rx="${radius}" ry="${radius}" />`;
-      cutPath = `<rect x="0" y="0" width="${w}" height="${h}" rx="${radius}" ry="${radius}" fill="none" stroke="#ff00ff" stroke-width="${Math.min(w, h) * 0.01}" />`;
-    } else if (shapeKey === "freeform") {
-      clipShape = `<rect x="0" y="0" width="${w}" height="${h}" />`;
-      cutPath = "";
+    const wantsCutline = !!cutlineEnabled;
+    const cutlineD = sanitizeSvgPathD(cutlinePathD);
+    const fallbackStrokeW = Math.max(2, Math.round(Math.min(w, h) * 0.01));
+    const strokeW = Number.isFinite(Number(cutlineStrokePx)) ? Number(cutlineStrokePx) : fallbackStrokeW;
+
+    // ✅ If client sends pathD, we can use it for clip AND cutline
+    if (wantsCutline && cutlineD && shapeKey !== "freeform") {
+      clipShape = `<path d="${cutlineD}" />`;
+      cutPath = buildCutlinePathTag({ d: cutlineD, strokePx: strokeW, color: "#ff00ff" });
     } else {
-      clipShape = `<rect x="0" y="0" width="${w}" height="${h}" />`;
-      cutPath = `<rect x="0" y="0" width="${w}" height="${h}" fill="none" stroke="#ff00ff" stroke-width="${Math.min(w, h) * 0.01}" />`;
+      if (shapeKey === "round") {
+        const cx = w / 2;
+        const cy = h / 2;
+        const r = Math.min(w, h) / 2;
+        clipShape = `<circle cx="${cx}" cy="${cy}" r="${r}" />`;
+        cutPath = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+      } else if (shapeKey === "oval") {
+        const cx = w / 2;
+        const cy = h / 2;
+        clipShape = `<ellipse cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}" />`;
+        cutPath = `<ellipse cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+      } else if (shapeKey === "rounded") {
+        const radius = Math.min(w, h) * 0.2;
+        clipShape = `<rect x="0" y="0" width="${w}" height="${h}" rx="${radius}" ry="${radius}" />`;
+        cutPath = `<rect x="0" y="0" width="${w}" height="${h}" rx="${radius}" ry="${radius}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+      } else if (shapeKey === "freeform") {
+        clipShape = `<rect x="0" y="0" width="${w}" height="${h}" />`;
+        // Wenn freeform ohne renderedDataUrl: wir haben hier keine zuverlässige Cutline, außer pathD kommt.
+        cutPath = wantsCutline && cutlineD ? buildCutlinePathTag({ d: cutlineD, strokePx: strokeW }) : "";
+      } else {
+        clipShape = `<rect x="0" y="0" width="${w}" height="${h}" />`;
+        cutPath = `<rect x="0" y="0" width="${w}" height="${h}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+      }
     }
 
     const bgRect = hasBgFill && shapeKey !== "freeform" ? `<rect x="0" y="0" width="${w}" height="${h}" fill="${fill}" />` : "";
@@ -422,7 +474,6 @@ export async function action({ request }) {
     const fileName = `${Date.now()}-sticker.svg`;
     const localSvgUrl = `${appBase}/exports/sticker-configurator/${fileName}`;
 
-    // In Production: auch hier default Shopify-Upload, sonst ist die URL im Storefront nicht erreichbar
     let svgUrl = localSvgUrl;
     let svgFileId = null;
 

@@ -4,18 +4,16 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
  * StickerCanvasClient.jsx
  * - Self-contained (no relative imports)
  *
- * ✅ Austauschdatei (robust & visuell sauber):
- * - Cutline wird UI-only als echte Kontur aus der Freiform-Maske gerendert (Canvas/Morphology),
- *   statt per drop-shadow am PNG.
- * - Cutline erscheint NUR bei Hintergrund "Weiß" und "Farbig" (NICHT bei Transparent).
- * - Freiform: Cutline-Overlay ist ein separates PNG (transparent) und liegt exakt über der Preview.
- * - Feste Formen: saubere Cutline per Overlay-Rand (kein drop-shadow am Bild).
+ * ✅ Patch (Austauschdatei):
+ * - UI-Cutline bleibt wie gehabt (nur Vorschau)
+ * - NEU: Cutline wird für den SVG-Export als echter Vektorpfad erzeugt und an /sticker/export gesendet:
+ *   - payload: cutlineEnabled, cutlinePathD, cutlineStrokePx
+ *   - Freeform: Cutline aus Maske via Dilation + Kontur + Simplify
+ *   - Feste Formen: Cutline als Geometrie-Path (Rect/Rounded/Circle/Ellipse)
  *
- * Technische Voraussetzung (ehrlich):
- * - Für Freiform muss eine Maske existieren. Diese Datei erzeugt die Maske aus Alpha (PNG mit Transparenz
- *   oder serverseitig freigestelltes Preview, falls du das nutzt).
- * - Wenn das Upload-Bild keine Transparenz hat (z.B. JPG), kann eine Objektkontur nicht zuverlässig
- *   aus „weißem Hintergrund“ geraten werden. Dann ist Freiform nur so gut wie die vorhandene Maske.
+ * WICHTIG:
+ * - Dein Server hat aktuell KEIN svgInline. Daher MUSS /sticker/export erweitert werden (siehe Patch unten),
+ *   damit er cutlinePathD ins SVG übernimmt.
  */
 
 // ==============================
@@ -45,6 +43,9 @@ const FREEFORM_SEAL_GAPS_PX = 3;
 // Rounded Export
 const ROUNDED_PAD_PX = 28;
 const ROUNDED_RADIUS_MM = (ROUNDED_PAD_PX / PX_PER_CM) * 10;
+
+// ✅ Cutline Stroke im Export (in px bei Export-DPI)
+const EXPORT_CUTLINE_STROKE_PX = 2;
 
 // UI Colorways (Fallback)
 const FALLBACK_COLORWAYS = [
@@ -853,8 +854,7 @@ function buildFreeformMasterMask({
     padPx,
     innerW,
     innerH,
-    _cache: new Map(), // cached dilation for border
-    _edgeCache: new Map(), // cached edge-bands
+    _cache: new Map(),
   };
 }
 
@@ -933,7 +933,6 @@ function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderP
   const offX = -minX * sx;
   const offY = -minY * sy;
 
-  // backing shape
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
@@ -945,16 +944,15 @@ function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderP
     ctx.fillStyle = bgColor || "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
+
   ctx.restore();
 
-  // image
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.globalCompositeOperation = "source-over";
   ctx.drawImage(master.src, 0, 0, master.masterW, master.masterH, offX, offY, outW, outH);
   ctx.restore();
 
-  // clip to backing
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
@@ -996,128 +994,157 @@ function composeStickerIntoBillingBox({ stickerCanvas, boxWpx, boxHpx }) {
 }
 
 // ==============================
-// ✅ Saubere Cutline aus Maske (Freiform)
+// ✅ Export-Cutline: Kontur -> SVG PathD
 // ==============================
-function buildEdgeBandMask(baseMask, w, h, bandRadiusPx) {
-  const r = Math.max(1, Math.round(bandRadiusPx || 1));
-  // band = dilate(mask,r) - erode(mask,r)
-  const dil = dilateMaskExact(baseMask, w, h, r);
-  const ero = erodeMaskExact(baseMask, w, h, r);
-  const out = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) out[i] = dil[i] && !ero[i] ? 1 : 0;
-  return out;
+
+// Ramer–Douglas–Peucker Simplification
+function rdp(points, epsilon) {
+  if (!points || points.length < 3) return points || [];
+  const eps = Math.max(0, Number(epsilon) || 0);
+
+  const distPointLine = (p, a, b) => {
+    const x = p[0],
+      y = p[1];
+    const x1 = a[0],
+      y1 = a[1];
+    const x2 = b[0],
+      y2 = b[1];
+    const dx = x2 - x1,
+      dy = y2 - y1;
+    if (dx === 0 && dy === 0) return Math.hypot(x - x1, y - y1);
+    const t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+    const tt = Math.max(0, Math.min(1, t));
+    const px = x1 + tt * dx,
+      py = y1 + tt * dy;
+    return Math.hypot(x - px, y - py);
+  };
+
+  const simplify = (pts) => {
+    let dmax = 0;
+    let idx = 0;
+    const end = pts.length - 1;
+    for (let i = 1; i < end; i++) {
+      const d = distPointLine(pts[i], pts[0], pts[end]);
+      if (d > dmax) {
+        dmax = d;
+        idx = i;
+      }
+    }
+    if (dmax > eps) {
+      const left = simplify(pts.slice(0, idx + 1));
+      const right = simplify(pts.slice(idx));
+      return left.slice(0, -1).concat(right);
+    }
+    return [pts[0], pts[end]];
+  };
+
+  return simplify(points);
 }
 
-/**
- * Rendert eine transparente Cutline-Overlay-Grafik (PNG/Canvas) passend zur
- * Freiform-Preview (crop + boxing identisch).
- *
- * - basis ist die "backingMask" (also inkl. Freiform-Rand / border)
- * - wir zeichnen 2 Bänder:
- *   1) Halo (dunkel) etwas breiter
- *   2) Line (türkis) etwas schmaler
- */
-function renderFreeformCutlineOverlayFromMaster({
-  master,
-  outWpx,
-  outHpx,
-  borderPx,
-  boxWpx,
-  boxHpx,
-  haloPx = 2,
-  linePx = 1,
-  haloColor = "rgba(0,0,0,0.75)",
-  lineColor = "rgba(0,229,255,0.95)",
-}) {
-  const outW = Math.max(1, Math.round(outWpx));
-  const outH = Math.max(1, Math.round(outHpx));
+// pragmatische Kontur (funktioniert stabil für Sticker-Cutlines)
+// mask: Uint8Array (0/1), w/h
+function marchingSquaresContour(mask, w, h) {
+  const inside = (x, y) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return 0;
+    return mask[y * w + x] ? 1 : 0;
+  };
+
+  let sx = -1,
+    sy = -1;
+  for (let y = 0; y < h && sy < 0; y++) {
+    for (let x = 0; x < w; x++) {
+      if (inside(x, y) && !inside(x - 1, y)) {
+        sx = x;
+        sy = y;
+        break;
+      }
+    }
+  }
+  if (sx < 0) return [];
+
+  let x = sx,
+    y = sy;
+  let dir = 0;
+  const pts = [];
+  pts.push([x, y]);
+
+  const step = () => {
+    const a = inside(x - 1, y - 1);
+    const b = inside(x, y - 1);
+    const c = inside(x - 1, y);
+    const d = inside(x, y);
+
+    const idx = (a << 3) | (b << 2) | (c << 1) | d;
+
+    switch (idx) {
+      case 1:
+      case 5:
+      case 9:
+      case 13:
+        dir = 0;
+        break; // up
+      case 2:
+      case 3:
+      case 6:
+      case 7:
+        dir = 3;
+        break; // left
+      case 8:
+      case 10:
+      case 11:
+      case 14:
+        dir = 2;
+        break; // down
+      default:
+        dir = 1; // right
+    }
+
+    if (dir === 0) y -= 1;
+    else if (dir === 1) x += 1;
+    else if (dir === 2) y += 1;
+    else x -= 1;
+
+    pts.push([x, y]);
+  };
+
+  const maxSteps = w * h + (w + h) * 50;
+  for (let i = 0; i < maxSteps; i++) {
+    step();
+    if (x === sx && y === sy && i > 10) break;
+  }
+
+  return pts;
+}
+
+function pointsToPathD(points, scaleX, scaleY, offsetX = 0, offsetY = 0) {
+  if (!points || points.length < 2) return "";
+  const p0 = points[0];
+  let d = `M ${((p0[0] * scaleX) + offsetX).toFixed(2)} ${((p0[1] * scaleY) + offsetY).toFixed(2)}`;
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i];
+    d += ` L ${((p[0] * scaleX) + offsetX).toFixed(2)} ${((p[1] * scaleY) + offsetY).toFixed(2)}`;
+  }
+  d += " Z";
+  return d;
+}
+
+function buildFreeformCutlinePathFromMaster(master, outW, outH, borderPxOut) {
+  if (!master?.insideMask || !master.mw || !master.mh) return "";
 
   const pxPerMask = outW / Math.max(1, master.mw);
-  const borderInMaskPx = Math.max(1, Math.round((borderPx || 0) / Math.max(1e-9, pxPerMask)));
+  const borderInMask = Math.max(1, Math.round((borderPxOut || 0) / Math.max(1e-9, pxPerMask)));
 
-  // backingMask (cached)
-  let cached = master?._cache?.get?.(borderInMaskPx);
-  if (!cached) {
-    const backingMask = dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMaskPx);
-    const backingC = maskToAlphaCanvas(backingMask, master.mw, master.mh);
-    cached = { backingMask, backingC };
-    master._cache.set(borderInMaskPx, cached);
-  }
-  const backingMask = cached.backingMask;
+  const backingMask = dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMask);
 
-  // Crop area identisch zu renderFreeformFromMasterMask
-  const bb = maskBBox(backingMask, master.mw, master.mh);
-  const M = 3;
-  const minX = Math.max(0, bb.minX - M);
-  const minY = Math.max(0, bb.minY - M);
-  const maxX = Math.min(master.mw - 1, bb.maxX + M);
-  const maxY = Math.min(master.mh - 1, bb.maxY + M);
+  const rawPts = marchingSquaresContour(backingMask, master.mw, master.mh);
+  if (!rawPts.length) return "";
+
+  const smooth = rdp(rawPts, 1.2);
 
   const sx = outW / Math.max(1, master.mw);
   const sy = outH / Math.max(1, master.mh);
 
-  const cropW = Math.max(1, Math.round((maxX - minX + 1) * sx));
-  const cropH = Math.max(1, Math.round((maxY - minY + 1) * sy));
-  const offX = -minX * sx;
-  const offY = -minY * sy;
-
-  // Edge-bands in mask-space (cached)
-  const haloMaskPx = Math.max(1, Math.round(haloPx / Math.max(1e-9, pxPerMask)));
-  const lineMaskPx = Math.max(1, Math.round(linePx / Math.max(1e-9, pxPerMask)));
-  const edgeKey = `${borderInMaskPx}|h${haloMaskPx}|l${lineMaskPx}`;
-
-  let edgeCached = master?._edgeCache?.get?.(edgeKey);
-  if (!edgeCached) {
-    const haloBand = buildEdgeBandMask(backingMask, master.mw, master.mh, haloMaskPx);
-    const lineBand = buildEdgeBandMask(backingMask, master.mw, master.mh, lineMaskPx);
-    edgeCached = {
-      haloC: maskToAlphaCanvas(haloBand, master.mw, master.mh),
-      lineC: maskToAlphaCanvas(lineBand, master.mw, master.mh),
-    };
-    master._edgeCache.set(edgeKey, edgeCached);
-    if (master._edgeCache.size > 18) {
-      const firstKey = master._edgeCache.keys().next().value;
-      master._edgeCache.delete(firstKey);
-    }
-  }
-
-  // Render crop-sized overlay (transparent)
-  const cropCanvas = document.createElement("canvas");
-  cropCanvas.width = cropW;
-  cropCanvas.height = cropH;
-  const ctx = cropCanvas.getContext("2d");
-  if (!ctx) return null;
-
-  ctx.clearRect(0, 0, cropW, cropH);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-
-  // Halo pass
-  ctx.save();
-  ctx.globalCompositeOperation = "source-over";
-  ctx.drawImage(edgeCached.haloC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-  ctx.globalCompositeOperation = "source-in";
-  ctx.fillStyle = haloColor;
-  ctx.fillRect(0, 0, cropW, cropH);
-  ctx.restore();
-
-  // Line pass (on top)
-  ctx.save();
-  ctx.globalCompositeOperation = "source-over";
-  ctx.drawImage(edgeCached.lineC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-  ctx.globalCompositeOperation = "source-in";
-  ctx.fillStyle = lineColor;
-  ctx.fillRect(0, 0, cropW, cropH);
-  ctx.restore();
-
-  // Box it like sticker
-  const boxed = composeStickerIntoBillingBox({
-    stickerCanvas: cropCanvas,
-    boxWpx,
-    boxHpx,
-  });
-
-  return boxed;
+  return pointsToPathD(smooth, sx, sy, 0, 0);
 }
 
 // ==============================
@@ -1185,7 +1212,7 @@ export default function StickerCanvasClient({
     if (bgMode === "white") setBgColor("#ffffff");
   }, [bgMode]);
 
-  // ✅ Cutline nur für "white" und "color" (farbig)
+  // ✅ UI-Cutline nur für "white" und "color" (farbig)
   const shouldShowCutline = useMemo(() => bgMode === "white" || bgMode === "color", [bgMode]);
 
   const [imageUrl, setImageUrl] = useState(defaultImageUrl || "");
@@ -1216,15 +1243,10 @@ export default function StickerCanvasClient({
   const localPreviewUrlRef = useRef(null);
 
   const [imgAspect, setImgAspect] = useState(1);
-
   const [freeformPreviewUrl, setFreeformPreviewUrl] = useState("");
   const [freeformPreviewAspect, setFreeformPreviewAspect] = useState(1);
   const [freeformMaster, setFreeformMaster] = useState(null);
   const freeformPreviewObjUrlRef = useRef(null);
-
-  // ✅ NEW: Freeform Cutline overlay URL
-  const [freeformCutlineUrl, setFreeformCutlineUrl] = useState("");
-  const freeformCutlineObjUrlRef = useRef(null);
 
   const [serverPreviewUrl, setServerPreviewUrl] = useState("");
   const serverPreviewAbortRef = useRef(null);
@@ -1770,10 +1792,6 @@ export default function StickerCanvasClient({
         URL.revokeObjectURL(freeformPreviewObjUrlRef.current);
         freeformPreviewObjUrlRef.current = null;
       }
-      if (freeformCutlineObjUrlRef.current) {
-        URL.revokeObjectURL(freeformCutlineObjUrlRef.current);
-        freeformCutlineObjUrlRef.current = null;
-      }
       if (localPreviewUrlRef.current) {
         URL.revokeObjectURL(localPreviewUrlRef.current);
         localPreviewUrlRef.current = null;
@@ -1925,19 +1943,13 @@ export default function StickerCanvasClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl, shape, imgAspect, serverPreviewUrl]);
 
-  // ✅ Client preview + (neu) Cutline overlay rendern
   useEffect(() => {
     if (!imageUrl || shape !== "freeform" || !freeformMaster || serverPreviewUrl) {
       if (freeformPreviewObjUrlRef.current) {
         URL.revokeObjectURL(freeformPreviewObjUrlRef.current);
         freeformPreviewObjUrlRef.current = null;
       }
-      if (freeformCutlineObjUrlRef.current) {
-        URL.revokeObjectURL(freeformCutlineObjUrlRef.current);
-        freeformCutlineObjUrlRef.current = null;
-      }
       setFreeformPreviewUrl("");
-      setFreeformCutlineUrl("");
       setFreeformPreviewAspect(imgAspect || 1);
       return;
     }
@@ -1962,7 +1974,6 @@ export default function StickerCanvasClient({
 
         const borderPx = Math.max(1, Math.round(mmToPx(freeformBorderMm) * k));
 
-        // Sticker preview (wie gehabt)
         const sticker = renderFreeformFromMasterMask({
           master: freeformMaster,
           outWpx: designRawW,
@@ -1979,45 +1990,21 @@ export default function StickerCanvasClient({
 
         const ar = boxed.height > 0 ? boxed.width / boxed.height : 1;
 
-        // ✅ Cutline overlay (nur bei Weiß/Farbig)
-        let cutlineObjUrl = "";
-        if (shouldShowCutline) {
-          const overlayCanvas = renderFreeformCutlineOverlayFromMaster({
-            master: freeformMaster,
-            outWpx: designRawW,
-            outHpx: designRawH,
-            borderPx,
-            boxWpx: boxW,
-            boxHpx: boxH,
-            haloPx: 2,
-            linePx: 1,
-          });
-
-          if (overlayCanvas) {
-            const u = await canvasToObjectUrl(overlayCanvas);
-            cutlineObjUrl = u;
-          }
-        }
-
         const objUrl = await canvasToObjectUrl(boxed);
-
         if (cancelled) {
           URL.revokeObjectURL(objUrl);
-          if (cutlineObjUrl) URL.revokeObjectURL(cutlineObjUrl);
           return;
         }
 
-        if (freeformPreviewObjUrlRef.current) URL.revokeObjectURL(freeformPreviewObjUrlRef.current);
+        if (freeformPreviewObjUrlRef.current) {
+          URL.revokeObjectURL(freeformPreviewObjUrlRef.current);
+        }
         freeformPreviewObjUrlRef.current = objUrl;
 
-        if (freeformCutlineObjUrlRef.current) URL.revokeObjectURL(freeformCutlineObjUrlRef.current);
-        freeformCutlineObjUrlRef.current = cutlineObjUrl || null;
-
         setFreeformPreviewUrl(objUrl);
-        setFreeformCutlineUrl(cutlineObjUrl || "");
         setFreeformPreviewAspect(ar);
       } catch (e) {
-        console.warn("Freeform preview/cutline render failed:", e);
+        console.warn("Freeform preview render failed:", e);
       }
     }, 500);
 
@@ -2040,10 +2027,8 @@ export default function StickerCanvasClient({
     effWcm,
     effHcm,
     serverPreviewUrl,
-    shouldShowCutline,
   ]);
 
-  // Server preview: unverändert (dein Fallback/Proxy)
   useEffect(() => {
     if (!imageUrl || shape !== "freeform") {
       setServerPreviewUrl("");
@@ -2188,12 +2173,6 @@ export default function StickerCanvasClient({
       freeformPreviewObjUrlRef.current = null;
     }
 
-    setFreeformCutlineUrl("");
-    if (freeformCutlineObjUrlRef.current) {
-      URL.revokeObjectURL(freeformCutlineObjUrlRef.current);
-      freeformCutlineObjUrlRef.current = null;
-    }
-
     imgElRef.current = null;
     imgElUrlRef.current = "";
 
@@ -2261,7 +2240,7 @@ export default function StickerCanvasClient({
   }
 
   // ==============================
-  // Export (unverändert belassen – gekürzt/gleich wie deine Version)
+  // Export
   // ==============================
   function buildExportKeyForCart() {
     return [
@@ -2277,6 +2256,63 @@ export default function StickerCanvasClient({
       String(widthCm || ""),
       String(heightCm || ""),
     ].join("|");
+  }
+
+  // ✅ Cutline-Pfad für Export erzeugen (wird an Server geschickt)
+  function buildCutlinePathDForExport({ shape, canvasW, canvasH, freeformMaster, img, imgAspect }) {
+    const w = Math.max(1, Math.round(canvasW));
+    const h = Math.max(1, Math.round(canvasH));
+
+    // nur Weiß/Farbig (nicht transparent)
+    const exportShouldCut = bgMode === "white" || bgMode === "color";
+    if (!exportShouldCut) return "";
+
+    if (shape === "round") {
+      const r = Math.min(w, h) / 2;
+      return `M ${r} 0 A ${r} ${r} 0 1 1 ${r} ${h} A ${r} ${r} 0 1 1 ${r} 0 Z`;
+    }
+
+    if (shape === "oval" || shape === "oval_portrait") {
+      const rx = w / 2;
+      const ry = h / 2;
+      return `M ${rx} 0 A ${rx} ${ry} 0 1 1 ${rx} ${h} A ${rx} ${ry} 0 1 1 ${rx} 0 Z`;
+    }
+
+    if (shape === "square" || shape === "rect" || shape === "rect_landscape") {
+      return `M 0 0 L ${w} 0 L ${w} ${h} L 0 ${h} Z`;
+    }
+
+    if (shape === "square_rounded" || shape === "rect_rounded" || shape === "rect_landscape_rounded") {
+      const rr = Math.max(6, Math.round(Math.min(w, h) * 0.08));
+      const r = Math.min(rr, Math.min(w, h) / 2);
+      return (
+        `M ${r} 0 L ${w - r} 0 ` +
+        `A ${r} ${r} 0 0 1 ${w} ${r} ` +
+        `L ${w} ${h - r} ` +
+        `A ${r} ${r} 0 0 1 ${w - r} ${h} ` +
+        `L ${r} ${h} ` +
+        `A ${r} ${r} 0 0 1 0 ${h - r} ` +
+        `L 0 ${r} ` +
+        `A ${r} ${r} 0 0 1 ${r} 0 Z`
+      );
+    }
+
+    if (shape === "freeform") {
+      const borderPxOut = mmToPxAtDpi(freeformBorderMm, EXPORT_DPI);
+      const master =
+        freeformMaster ||
+        buildFreeformMasterMask({
+          imgEl: img,
+          imgAspect: imgAspect || 1,
+          getMasterRectFromAspect,
+          maxMaskDim: 520,
+          padPx: 120,
+        });
+
+      return buildFreeformCutlinePathFromMaster(master, w, h, borderPxOut);
+    }
+
+    return "";
   }
 
   async function ensureSvgExportForCart(remoteUrlForExport) {
@@ -2403,6 +2439,19 @@ export default function StickerCanvasClient({
 
     const renderedDataUrl = canvas.toDataURL("image/png");
 
+    // ✅ NEU: Cutline-Pfad für Server
+    const exportCutlineEnabled = bgMode === "white" || bgMode === "color";
+    const cutlinePathD = exportCutlineEnabled
+      ? buildCutlinePathDForExport({
+          shape,
+          canvasW: canvas.width,
+          canvasH: canvas.height,
+          freeformMaster,
+          img,
+          imgAspect,
+        })
+      : "";
+
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2425,6 +2474,11 @@ export default function StickerCanvasClient({
         sizeKey: String(sizeKey || ""),
         widthCm: Number(effWcm) || 0,
         heightCm: Number(effHcm) || 0,
+
+        // ✅ NEU: Cutline-Info für SVG-Builder am Server
+        cutlineEnabled: !!exportCutlineEnabled,
+        cutlinePathD: String(cutlinePathD || ""),
+        cutlineStrokePx: EXPORT_CUTLINE_STROKE_PX,
 
         uploadSvgToShopify: true,
         uploadPngToShopify: false,
@@ -2875,17 +2929,15 @@ export default function StickerCanvasClient({
               <div className="scTransparentMask" style={freeformMaskStyle || undefined} />
             ) : null}
 
-            {/* Sticker */}
-            <img src={displaySrc} alt="Sticker" className="scImg scImgContain" crossOrigin="anonymous" />
-
-            {/* ✅ Saubere Cutline als eigenes Overlay (nur Weiß/Farbig) */}
-            {shouldShowCutline && !!freeformCutlineUrl ? (
-              <img src={freeformCutlineUrl} alt="" className="scCutlineImg" />
-            ) : null}
+            <img
+              src={displaySrc}
+              alt="Sticker"
+              className={`scImg scImgContain ${shouldShowCutline ? "scCutline" : ""}`}
+              crossOrigin="anonymous"
+            />
           </div>
         ) : (
           <div className={fixedSurfaceClass} style={surfaceStyleVars}>
-            {/* ✅ Feste Formen: saubere Cutline per Overlay */}
             {shouldShowCutline ? <div className="scCutlineOverlay" /> : null}
 
             <div className={`scSurfaceOutline ${showTransparentMark ? "scSurfaceOutline--strong" : ""}`} />
@@ -3232,16 +3284,6 @@ const SC_CSS = `
   background: transparent;
 }
 
-/* Cutline overlay image for freeform */
-.scCutlineImg{
-  position:absolute;
-  inset:0;
-  width:100%;
-  height:100%;
-  object-fit: contain;
-  pointer-events:none;
-}
-
 /* Checkerboard pattern (nur relevant, wenn Transparent aktiviert wird) */
 .scTransparentMask{
   position:absolute;
@@ -3257,15 +3299,26 @@ const SC_CSS = `
 }
 
 /* =========================================================
-   ✅ Cutline (UI-only) – feste Formen (sauberer Rand)
+   ✅ Cutline (UI-only)
    ========================================================= */
+
+.scCutline{
+  filter:
+    drop-shadow( 1px  0px 0 rgba(0,0,0,0.72))
+    drop-shadow(-1px  0px 0 rgba(0,0,0,0.72))
+    drop-shadow( 0px  1px 0 rgba(0,0,0,0.72))
+    drop-shadow( 0px -1px 0 rgba(0,0,0,0.72))
+    drop-shadow( 0px  0px 1px rgba(255,255,255,0.30))
+    drop-shadow( 0px 10px 22px rgba(0,0,0,0.38));
+}
+
 .scCutlineOverlay{
   position:absolute;
   inset:0;
   pointer-events:none;
   border-radius: inherit;
   box-shadow:
-    0 0 0 2px rgba(0,0,0,0.68),
-    0 0 0 3px rgba(0,229,255,0.90);
+    0 0 0 1px rgba(0,0,0,0.70),
+    0 0 0 2px rgba(255,255,255,0.20);
 }
 `;
