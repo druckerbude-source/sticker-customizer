@@ -30,11 +30,14 @@ export default function StickerCanvasShell(props) {
         style={{
           padding: 16,
           height: "100%",
+          minHeight: 200,
           boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          color: "#555",
+          color: "rgba(255,255,255,0.5)",
+          fontSize: 14,
+          fontFamily: "'Noto Sans', sans-serif",
         }}
       >
         Editor wird geladen …

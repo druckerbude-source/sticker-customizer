@@ -80,6 +80,20 @@ const FALLBACK_COLORWAYS = [
   { colorKey: "colored", label: "Farbig" },
 ];
 
+// ─── StickerApp.de Design Tokens ────────────────────────────────────────────
+// Brand accent: #F26419 (StickerApp Orange)
+// Dark bg: #040404 / panels: #0f0f13
+// Font: Noto Sans (400, 700, 900)
+// ────────────────────────────────────────────────────────────────────────────
+const SA_ORANGE = "#F26419";
+// eslint-disable-next-line no-unused-vars
+const SA_ORANGE_HOVER = "#d45512";
+const SA_BG = "#040404";
+const SA_PANEL = "#0f0f13";
+const SA_INPUT_BG = "#1a1a22";
+const SA_BORDER = "rgba(255,255,255,0.09)";
+const SA_FONT = "'Noto Sans', 'Inter', system-ui, sans-serif";
+
 // ==============================
 // Helpers
 // ==============================
@@ -2706,14 +2720,28 @@ export default function StickerCanvasClient({
     };
   }, [shape, showTransparentMark]);
 
-  const previewBg = useMemo(() => "#0b0f16", []);
+  const previewBg = useMemo(() => SA_BG, []);
 
   // ==============================
   // Render
   // ==============================
+  // ✅ Responsives Layout: unter 640px einspaltig stapeln
+  const isMobile = vp.w < 640;
+  const wrapperStyle = {
+    ...styles.wrapper,
+    gridTemplateColumns: isMobile ? "1fr" : "280px 1fr",
+    borderRadius: isMobile ? 0 : 16,
+  };
+  const leftPanelStyle = {
+    ...styles.leftPanel,
+    borderRight: isMobile ? "none" : `1px solid rgba(255,255,255,0.09)`,
+    borderBottom: isMobile ? `1px solid rgba(255,255,255,0.09)` : "none",
+    maxHeight: isMobile ? "none" : "none",
+  };
+
   return (
-    <div style={styles.wrapper}>
-      <div style={styles.leftPanel}>
+    <div style={wrapperStyle}>
+      <div style={leftPanelStyle}>
         <div style={styles.sectionTitle}>Form & Größe</div>
 
         <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
@@ -2841,22 +2869,85 @@ export default function StickerCanvasClient({
           )}
         </div>
 
-        <div style={styles.label}>Hintergrund</div>
-        <select
-          value={bgMode}
-          onChange={(e) => setBgMode(e.target.value)}
-          style={{ width: "100%", marginTop: 4, ...styles.select }}
-        >
-          <option value="color">Farbig</option>
-          <option value="white">Weiß</option>
-          <option value="transparent">Transparent</option>
-        </select>
+        <div style={styles.label}>Material</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 4 }}>
+          {[
+            {
+              key: "white",
+              label: "Weiß",
+              icon: (
+                <div style={{ width: 22, height: 22, borderRadius: 4, background: "#fff", border: "1px solid rgba(0,0,0,0.15)" }} />
+              ),
+            },
+            {
+              key: "transparent",
+              label: "Transparent",
+              icon: (
+                <div
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 4,
+                    backgroundImage:
+                      "linear-gradient(45deg,#888 25%,transparent 25%,transparent 75%,#888 75%),linear-gradient(45deg,#888 25%,transparent 25%,transparent 75%,#888 75%)",
+                    backgroundSize: "8px 8px",
+                    backgroundPosition: "0 0,4px 4px",
+                    backgroundColor: "#ccc",
+                  }}
+                />
+              ),
+            },
+            {
+              key: "color",
+              label: "Farbig",
+              icon: (
+                <div
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 4,
+                    background: "linear-gradient(135deg,#ff4d4d,#ffb800,#00c8ff)",
+                  }}
+                />
+              ),
+            },
+          ].map(({ key, label, icon }) => {
+            const active = bgMode === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setBgMode(key)}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "9px 4px",
+                  borderRadius: 8,
+                  border: active ? `2px solid ${SA_ORANGE}` : "2px solid rgba(255,255,255,0.08)",
+                  background: active ? "rgba(242,100,25,0.10)" : "rgba(255,255,255,0.03)",
+                  color: active ? SA_ORANGE : "rgba(255,255,255,0.6)",
+                  fontSize: 10,
+                  fontWeight: active ? 700 : 500,
+                  cursor: "pointer",
+                  fontFamily: styles.wrapper.fontFamily,
+                  lineHeight: 1.2,
+                  transition: "border-color 0.15s, background 0.15s",
+                }}
+              >
+                {icon}
+                {label}
+              </button>
+            );
+          })}
+        </div>
 
         {bgMode === "color" ? (
-          <>
-            <div style={styles.label}>Hintergrundfarbe</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
             <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} style={styles.color} />
-          </>
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", fontFamily: styles.wrapper.fontFamily }}>{bgColor}</span>
+          </div>
         ) : null}
 
         {shape === "freeform" ? (
@@ -2891,18 +2982,27 @@ export default function StickerCanvasClient({
         <div style={styles.divider} />
 
         <div style={styles.statLine}>
-          <div style={styles.statLabel}>Sticker pro Set:</div>
-          <div style={styles.statValue}>{realPieces}</div>
+          <div style={styles.statLabel}>Sticker pro Set</div>
+          <div style={{ ...styles.statValue, color: "rgba(255,255,255,0.9)" }}>{realPieces}</div>
         </div>
 
-        <div style={styles.statLine}>
-          <div style={styles.statLabel}>Preis gesamt:</div>
-          <div style={styles.statValue}>{`${priceTotal.toFixed(2)} €`}</div>
+        <div style={{ ...styles.statLine, marginTop: 2 }}>
+          <div style={styles.statLabel}>Gesamtpreis</div>
+          <div style={{ ...styles.statValue, fontSize: 18, color: SA_ORANGE }}>{`${priceTotal.toFixed(2)} €`}</div>
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-          Variante: <b>{selectedVariantTitle || "—"}</b>
-        </div>
+        {selectedVariantTitle ? (
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 11,
+              color: "rgba(255,255,255,0.35)",
+              fontFamily: styles.wrapper.fontFamily,
+            }}
+          >
+            {selectedVariantTitle}
+          </div>
+        ) : null}
 
         <div style={styles.divider} />
 
@@ -2914,8 +3014,17 @@ export default function StickerCanvasClient({
           onChange={(e) => uploadFile(e.target.files?.[0])}
         />
 
-        <button type="button" style={styles.secondaryBtn} onClick={() => fileInputRef.current?.click()}>
-          {uploading ? "Upload…" : imageUrl ? "Bild ändern" : "Bild hochladen"}
+        <button
+          type="button"
+          style={{
+            ...styles.secondaryBtn,
+            borderStyle: "dashed",
+            borderColor: imageUrl ? "rgba(255,255,255,0.13)" : "rgba(242,100,25,0.4)",
+            color: imageUrl ? "rgba(255,255,255,0.85)" : SA_ORANGE,
+          }}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? "⏳ Wird hochgeladen…" : imageUrl ? "📎 Bild ändern" : "📎 Bild hochladen"}
         </button>
 
         <label
@@ -2933,7 +3042,21 @@ export default function StickerCanvasClient({
         </label>
 
         {addedMsg ? (
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9, color: "rgba(255,255,255,0.85)" }}>{addedMsg}</div>
+          <div
+            style={{
+              marginTop: 10,
+              padding: "9px 12px",
+              borderRadius: 8,
+              background: "rgba(34,197,94,0.10)",
+              border: "1px solid rgba(34,197,94,0.28)",
+              color: "#86efac",
+              fontSize: 12,
+              fontFamily: styles.wrapper.fontFamily,
+              lineHeight: 1.4,
+            }}
+          >
+            ✓ {addedMsg}
+          </div>
         ) : null}
 
         <button type="button" style={styles.primaryBtn} onClick={addToCart} disabled={!imageUrl}>
@@ -2947,9 +3070,52 @@ export default function StickerCanvasClient({
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
       </div>
 
-      <div style={{ ...styles.rightPanel, background: previewBg }}>
+      <div style={{ ...styles.rightPanel, background: previewBg, minHeight: isMobile ? 320 : 520 }}>
         {!imageUrl ? (
-          <div style={styles.emptyHint}>Bitte links ein Bild hochladen.</div>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <div
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 16,
+                background: "rgba(242,100,25,0.10)",
+                border: "2px dashed rgba(242,100,25,0.35)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 28,
+                cursor: "pointer",
+              }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              🖼️
+            </div>
+            <div style={styles.emptyHint}>
+              Bild hochladen um die Vorschau zu sehen
+            </div>
+            <button
+              type="button"
+              style={{
+                ...styles.secondaryBtn,
+                width: "auto",
+                marginTop: 0,
+                paddingLeft: 24,
+                paddingRight: 24,
+                border: "1.5px dashed rgba(242,100,25,0.5)",
+                color: SA_ORANGE,
+              }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Bild auswählen
+            </button>
+          </div>
         ) : (
           <div style={previewFrameStyle}>
             {shape === "freeform" ? (
@@ -3014,102 +3180,152 @@ export default function StickerCanvasClient({
 const styles = {
   wrapper: {
     width: "100%",
-    maxWidth: 980,
+    maxWidth: 1040,
     margin: "0 auto",
     display: "grid",
-    gridTemplateColumns: "260px 1fr",
+    // responsive: wird inline im Render überschrieben (vp.w < 640 → 1 Spalte)
+    gridTemplateColumns: "280px 1fr",
     gap: 0,
-    borderRadius: 22,
+    borderRadius: 16,
     overflow: "hidden",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
-    background: "#0b0f16",
+    boxShadow: "0 24px 80px rgba(0,0,0,0.65)",
+    background: SA_BG,
+    fontFamily: SA_FONT,
   },
   leftPanel: {
-    padding: 18,
-    background: "#0b0f16",
+    padding: "20px 18px",
+    background: SA_PANEL,
     color: "#fff",
-    borderRight: "1px solid rgba(255,255,255,0.08)",
+    borderRight: `1px solid ${SA_BORDER}`,
+    overflowY: "auto",
   },
   rightPanel: {
     minHeight: 520,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: 28,
+    background: SA_BG,
   },
-  sectionTitle: { fontSize: 14, opacity: 0.9, marginBottom: 6 },
-  label: { fontSize: 13, opacity: 0.85, marginTop: 14, marginBottom: 6 },
+  // Sektions-Überschrift (SA-Stil: klein, uppercase, gedämpft)
+  sectionTitle: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.10em",
+    textTransform: "uppercase",
+    color: "rgba(255,255,255,0.45)",
+    marginBottom: 10,
+    marginTop: 4,
+    fontFamily: SA_FONT,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.6)",
+    marginTop: 14,
+    marginBottom: 5,
+    letterSpacing: "0.04em",
+    fontFamily: SA_FONT,
+  },
   select: {
-    padding: "10px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "#0e1624",
+    padding: "9px 10px",
+    borderRadius: 8,
+    border: `1.5px solid ${SA_BORDER}`,
+    background: SA_INPUT_BG,
     color: "#fff",
     outline: "none",
+    fontSize: 13,
+    fontFamily: SA_FONT,
+    appearance: "none",
+    WebkitAppearance: "none",
+    backgroundImage:
+      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.4)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")",
+    backgroundRepeat: "no-repeat",
+    backgroundPosition: "right 10px center",
+    paddingRight: 28,
+    cursor: "pointer",
   },
   input: {
-    padding: "10px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "#0e1624",
+    padding: "9px 10px",
+    borderRadius: 8,
+    border: `1.5px solid ${SA_BORDER}`,
+    background: SA_INPUT_BG,
     color: "#fff",
     outline: "none",
+    fontSize: 13,
+    fontFamily: SA_FONT,
   },
   color: {
-    width: 86,
-    height: 36,
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.14)",
+    width: 48,
+    height: 34,
+    borderRadius: 8,
+    border: `1.5px solid ${SA_BORDER}`,
     background: "transparent",
-    padding: 0,
+    padding: 2,
+    cursor: "pointer",
   },
-  divider: { height: 1, background: "rgba(255,255,255,0.10)", margin: "14px 0" },
+  divider: {
+    height: 1,
+    background: SA_BORDER,
+    margin: "16px 0",
+  },
   statLine: {
     display: "flex",
     alignItems: "baseline",
     justifyContent: "space-between",
     gap: 10,
-    padding: "6px 0",
+    padding: "5px 0",
   },
-  statLabel: { fontSize: 13, opacity: 0.9 },
-  statValue: { fontSize: 14, fontWeight: 700 },
+  statLabel: { fontSize: 12, color: "rgba(255,255,255,0.55)", fontFamily: SA_FONT },
+  statValue: { fontSize: 15, fontWeight: 700, color: "#fff", fontFamily: SA_FONT },
+  // ── CTA: StickerApp Orange ──────────────────────────────────────────
   primaryBtn: {
     width: "100%",
-    marginTop: 12,
-    padding: "12px 14px",
-    borderRadius: 999,
+    marginTop: 14,
+    padding: "13px 16px",
+    borderRadius: 10,
     border: "none",
-    background: "#16a34a",
+    background: SA_ORANGE,
     color: "#fff",
     fontWeight: 800,
+    fontSize: 14,
     cursor: "pointer",
+    fontFamily: SA_FONT,
+    letterSpacing: "0.02em",
+    transition: "background 0.15s",
+    boxShadow: `0 4px 18px rgba(242,100,25,0.35)`,
   },
   secondaryBtn: {
     width: "100%",
-    marginTop: 10,
-    padding: "11px 14px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.06)",
-    color: "#fff",
-    fontWeight: 700,
+    marginTop: 8,
+    padding: "11px 16px",
+    borderRadius: 10,
+    border: `1.5px solid rgba(255,255,255,0.13)`,
+    background: "rgba(255,255,255,0.05)",
+    color: "rgba(255,255,255,0.85)",
+    fontWeight: 600,
+    fontSize: 13,
     cursor: "pointer",
+    fontFamily: SA_FONT,
   },
   errorBox: {
     marginTop: 12,
-    padding: 10,
-    borderRadius: 12,
-    background: "rgba(239, 68, 68, 0.12)",
-    border: "1px solid rgba(239, 68, 68, 0.35)",
-    color: "#fecaca",
+    padding: "10px 12px",
+    borderRadius: 10,
+    background: "rgba(239,68,68,0.10)",
+    border: "1px solid rgba(239,68,68,0.30)",
+    color: "#fca5a5",
     fontSize: 12,
     whiteSpace: "pre-wrap",
+    fontFamily: SA_FONT,
+    lineHeight: 1.5,
   },
   emptyHint: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 14,
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 13,
     textAlign: "center",
-    maxWidth: 420,
-    lineHeight: 1.4,
+    maxWidth: 340,
+    lineHeight: 1.6,
+    fontFamily: SA_FONT,
   },
 };
