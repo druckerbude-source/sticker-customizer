@@ -1041,76 +1041,52 @@ function rdp(points, epsilon) {
   return simplify(points);
 }
 
-// pragmatische Kontur (funktioniert stabil für Sticker-Cutlines)
+// Moore Neighbor Tracing – robust contour extraction for binary masks.
+// Returns an ordered list of boundary pixel coordinates (closed polygon).
 // mask: Uint8Array (0/1), w/h
 function marchingSquaresContour(mask, w, h) {
-  const inside = (x, y) => {
-    if (x < 0 || y < 0 || x >= w || y >= h) return 0;
-    return mask[y * w + x] ? 1 : 0;
-  };
+  const inside = (x, y) => x >= 0 && y >= 0 && x < w && y < h && !!mask[y * w + x];
 
-  let sx = -1,
-    sy = -1;
-  for (let y = 0; y < h && sy < 0; y++) {
+  // Find topmost, then leftmost inside pixel as the start
+  let sx = -1, sy = -1;
+  outer:
+  for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      if (inside(x, y) && !inside(x - 1, y)) {
-        sx = x;
-        sy = y;
-        break;
-      }
+      if (inside(x, y)) { sx = x; sy = y; break outer; }
     }
   }
   if (sx < 0) return [];
 
-  let x = sx,
-    y = sy;
-  let dir = 0;
-  const pts = [];
-  pts.push([x, y]);
+  // 8-connectivity directions (clockwise): E, SE, S, SW, W, NW, N, NE
+  const DX = [1, 1, 0, -1, -1, -1, 0, 1];
+  const DY = [0, 1, 1, 1, 0, -1, -1, -1];
 
-  const step = () => {
-    const a = inside(x - 1, y - 1);
-    const b = inside(x, y - 1);
-    const c = inside(x - 1, y);
-    const d = inside(x, y);
+  const pts = [[sx, sy]];
+  let cx = sx, cy = sy;
 
-    const idx = (a << 3) | (b << 2) | (c << 1) | d;
+  // We arrived at the start pixel from above (came from direction N = index 6).
+  // Start searching neighbours clockwise from that backtrack direction.
+  let backDir = 6;
 
-    switch (idx) {
-      case 1:
-      case 5:
-      case 9:
-      case 13:
-        dir = 0;
-        break; // up
-      case 2:
-      case 3:
-      case 6:
-      case 7:
-        dir = 3;
-        break; // left
-      case 8:
-      case 10:
-      case 11:
-      case 14:
-        dir = 2;
-        break; // down
-      default:
-        dir = 1; // right
+  const maxSteps = Math.min(w * h * 2 + (w + h) * 8, 400000);
+  for (let step = 0; step < maxSteps; step++) {
+    let moved = false;
+    for (let i = 0; i < 8; i++) {
+      const d = (backDir + i) % 8;
+      const nx = cx + DX[d];
+      const ny = cy + DY[d];
+      if (inside(nx, ny)) {
+        // Update backtrack: opposite direction of how we entered (nx, ny)
+        backDir = (d + 4) % 8;
+        cx = nx; cy = ny;
+        pts.push([cx, cy]);
+        moved = true;
+        break;
+      }
     }
-
-    if (dir === 0) y -= 1;
-    else if (dir === 1) x += 1;
-    else if (dir === 2) y += 1;
-    else x -= 1;
-
-    pts.push([x, y]);
-  };
-
-  const maxSteps = w * h + (w + h) * 50;
-  for (let i = 0; i < maxSteps; i++) {
-    step();
-    if (x === sx && y === sy && i > 10) break;
+    if (!moved) break; // isolated pixel – shouldn't happen for dilated masks
+    // Jacob's stopping criterion: back at start
+    if (step > 1 && cx === sx && cy === sy) break;
   }
 
   return pts;
@@ -1128,23 +1104,62 @@ function pointsToPathD(points, scaleX, scaleY, offsetX = 0, offsetY = 0) {
   return d;
 }
 
+// Smooth closed path using Catmull-Rom → cubic bezier (good for plotter cutlines).
+function pointsToSmoothPathD(points, scaleX, scaleY, offsetX = 0, offsetY = 0) {
+  if (!points || points.length < 2) return "";
+  if (points.length < 4) return pointsToPathD(points, scaleX, scaleY, offsetX, offsetY);
+
+  const n = points.length;
+  const px = (i) => points[((i % n) + n) % n][0] * scaleX + offsetX;
+  const py = (i) => points[((i % n) + n) % n][1] * scaleY + offsetY;
+
+  let d = `M ${px(0).toFixed(2)} ${py(0).toFixed(2)}`;
+  for (let i = 0; i < n; i++) {
+    // Catmull-Rom control points (tension = 1/6)
+    const cp1x = px(i)     + (px(i + 1) - px(i - 1)) / 6;
+    const cp1y = py(i)     + (py(i + 1) - py(i - 1)) / 6;
+    const cp2x = px(i + 1) - (px(i + 2) - px(i))     / 6;
+    const cp2y = py(i + 1) - (py(i + 2) - py(i))     / 6;
+    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${px(i + 1).toFixed(2)} ${py(i + 1).toFixed(2)}`;
+  }
+  d += " Z";
+  return d;
+}
+
 function buildFreeformCutlinePathFromMaster(master, outW, outH, borderPxOut) {
   if (!master?.insideMask || !master.mw || !master.mh) return "";
 
-  const pxPerMask = outW / Math.max(1, master.mw);
-  const borderInMask = Math.max(1, Math.round((borderPxOut || 0) / Math.max(1e-9, pxPerMask)));
+  // Use approximate scale for border width estimation only
+  const approxSx = outW / Math.max(1, master.mw);
+  const borderInMask = Math.max(1, Math.round((borderPxOut || 0) / Math.max(1e-9, approxSx)));
 
   const backingMask = dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMask);
 
   const rawPts = marchingSquaresContour(backingMask, master.mw, master.mh);
   if (!rawPts.length) return "";
 
-  const smooth = rdp(rawPts, 1.2);
+  // RDP epsilon of 2.0 px (mask-space) gives smooth plotter-friendly segments
+  const simplified = rdp(rawPts, 2.0);
+  if (simplified.length < 2) return "";
 
-  const sx = outW / Math.max(1, master.mw);
-  const sy = outH / Math.max(1, master.mh);
+  // ─── Critical fix: apply the same bounding-box crop as renderFreeformFromMasterMask ───
+  // The export canvas (outW × outH) is the CROPPED bbox canvas, not the full mask canvas.
+  // We must compute the same bbox + margin and derive the correct scale + offset.
+  const M = 3; // same margin used in renderFreeformFromMasterMask
+  const bb = maskBBox(backingMask, master.mw, master.mh);
+  const minX = Math.max(0, bb.minX - M);
+  const minY = Math.max(0, bb.minY - M);
+  const maxX = Math.min(master.mw - 1, bb.maxX + M);
+  const maxY = Math.min(master.mh - 1, bb.maxY + M);
 
-  return pointsToPathD(smooth, sx, sy, 0, 0);
+  // Scale from the crop region to the output canvas
+  const cropW = Math.max(1, maxX - minX + 1);
+  const cropH = Math.max(1, maxY - minY + 1);
+  const sx = outW / cropW;
+  const sy = outH / cropH;
+
+  // offsetX = -minX * sx  shifts the crop origin to canvas (0, 0)
+  return pointsToSmoothPathD(simplified, sx, sy, -minX * sx, -minY * sy);
 }
 
 // ==============================
