@@ -2834,7 +2834,7 @@ export default function StickerCanvasClient({
         {/* ── Schritt 3: Material ──────────────────────────────────── */}
         <div className="scStepHeader">
           <span className="scStepNum">3</span>
-          Material
+          Hintergrund
         </div>
         <div className="scMaterialGrid">
           {[
@@ -2887,11 +2887,7 @@ export default function StickerCanvasClient({
           </>
         ) : null}
 
-        {/* ── Schritt 4: Motiv ─────────────────────────────────────── */}
-        <div className="scStepHeader">
-          <span className="scStepNum">4</span>
-          Motiv hochladen
-        </div>
+    
 
         <input
           ref={fileInputRef}
@@ -2922,9 +2918,9 @@ export default function StickerCanvasClient({
             <span className="scPriceLabel">Gesamtpreis</span>
             <span className="scPriceBig">{priceTotal.toFixed(2)} €</span>
           </div>
-          {selectedVariantTitle ? (
+          {/*{selectedVariantTitle ? (
             <div className="scVariantHint">{selectedVariantTitle}</div>
-          ) : null}
+          ) : null}*/}
         </div>
 
         <button type="button" className="scBtn scBtnPrimary" onClick={addToCart} disabled={!imageUrl}>
