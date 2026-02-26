@@ -1126,12 +1126,16 @@ function pointsToSmoothPathD(points, scaleX, scaleY, offsetX = 0, offsetY = 0) {
   return d;
 }
 
-function buildFreeformCutlinePathFromMaster(master, outW, outH, borderPxOut) {
+// renderOutW / renderOutH = die "outWpx / outHpx", die an renderFreeformFromMasterMask übergeben
+// wurden (d.h. cmToPxAtDpi(widthCm, DPI)). Das ist NICHT gleich dem fertigen Canvas, welches
+// nach dem Bbox-Crop kleiner sein kann. Wir brauchen renderOutW, damit borderInMask denselben
+// Wert erhält wie im Renderer (pxPerMask = renderOutW / mw).
+function buildFreeformCutlinePathFromMaster(master, outW, outH, borderPxOut, renderOutW) {
   if (!master?.insideMask || !master.mw || !master.mh) return "";
 
-  // Use approximate scale for border width estimation only
-  const approxSx = outW / Math.max(1, master.mw);
-  const borderInMask = Math.max(1, Math.round((borderPxOut || 0) / Math.max(1e-9, approxSx)));
+  // renderSx: gleiche Skala wie pxPerMask im Renderer → korrekter borderInMask
+  const renderSx = Math.max(1, renderOutW || outW) / Math.max(1, master.mw);
+  const borderInMask = Math.max(1, Math.round((borderPxOut || 0) / Math.max(1e-9, renderSx)));
 
   const backingMask = dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMask);
 
@@ -2333,7 +2337,9 @@ export default function StickerCanvasClient({
           padPx: 120,
         });
 
-      return buildFreeformCutlinePathFromMaster(master, w, h, borderPxOut);
+      // bw = baseWidthPx = renderOutW: die Ausgangsgröße vor dem Bbox-Crop,
+      // identisch mit outWpx in renderFreeformFromMasterMask → korrekter borderInMask
+      return buildFreeformCutlinePathFromMaster(master, w, h, borderPxOut, bw);
     }
 
     return "";
