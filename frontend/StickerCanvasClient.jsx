@@ -2274,23 +2274,31 @@ export default function StickerCanvasClient({
   }
 
   // ✅ Cutline-Pfad für Export erzeugen (wird an Server geschickt)
-  function buildCutlinePathDForExport({ shape, canvasW, canvasH, freeformMaster, img, imgAspect }) {
+  // baseWidthPx / baseHeightPx = tatsächliche Sticker-Größe in Pixeln (ohne Canvas-Padding).
+  // canvasW / canvasH = Export-Canvas-Größe (kann größer sein, z.B. Diagonale bei round).
+  function buildCutlinePathDForExport({ shape, canvasW, canvasH, baseWidthPx, baseHeightPx, freeformMaster, img, imgAspect }) {
     const w = Math.max(1, Math.round(canvasW));
     const h = Math.max(1, Math.round(canvasH));
+    // tatsächliche Sticker-Maße (ohne Canvas-Padding) – relevant für round/oval
+    const bw = Math.max(1, Math.round(baseWidthPx || w));
+    const bh = Math.max(1, Math.round(baseHeightPx || h));
+    const cx = w / 2;
+    const cy = h / 2;
 
-    // nur Weiß/Farbig (nicht transparent)
-    const exportShouldCut = bgMode === "white" || bgMode === "color";
-    if (!exportShouldCut) return "";
+    if (bgMode !== "white" && bgMode !== "color") return "";
 
     if (shape === "round") {
-      const r = Math.min(w, h) / 2;
-      return `M ${r} 0 A ${r} ${r} 0 1 1 ${r} ${h} A ${r} ${r} 0 1 1 ${r} 0 Z`;
+      // Kreis zentriert im Canvas, Radius = halbe Sticker-Dimension (nicht halbe Canvas-Diagonale!)
+      const r = Math.min(bw, bh) / 2;
+      // Zwei Halbbögen: linker Punkt → obere Hälfte (CCW) → rechter Punkt → untere Hälfte (CCW) → geschlossen
+      return `M ${(cx - r).toFixed(2)} ${cy.toFixed(2)} A ${r} ${r} 0 1 0 ${(cx + r).toFixed(2)} ${cy.toFixed(2)} A ${r} ${r} 0 1 0 ${(cx - r).toFixed(2)} ${cy.toFixed(2)} Z`;
     }
 
     if (shape === "oval" || shape === "oval_portrait") {
-      const rx = w / 2;
-      const ry = h / 2;
-      return `M ${rx} 0 A ${rx} ${ry} 0 1 1 ${rx} ${h} A ${rx} ${ry} 0 1 1 ${rx} 0 Z`;
+      // Ellipse zentriert im Canvas, rx/ry aus tatsächlichen Sticker-Maßen
+      const rx = bw / 2;
+      const ry = bh / 2;
+      return `M ${(cx - rx).toFixed(2)} ${cy.toFixed(2)} A ${rx} ${ry} 0 1 0 ${(cx + rx).toFixed(2)} ${cy.toFixed(2)} A ${rx} ${ry} 0 1 0 ${(cx - rx).toFixed(2)} ${cy.toFixed(2)} Z`;
     }
 
     if (shape === "square" || shape === "rect" || shape === "rect_landscape") {
@@ -2298,17 +2306,18 @@ export default function StickerCanvasClient({
     }
 
     if (shape === "square_rounded" || shape === "rect_rounded" || shape === "rect_landscape_rounded") {
-      const rr = Math.max(6, Math.round(Math.min(w, h) * 0.08));
-      const r = Math.min(rr, Math.min(w, h) / 2);
+      // Eckenradius = tatsächliches Padding (ROUNDED_RADIUS_MM), nicht Prozentsatz des Canvas
+      const padPx = mmToPxAtDpi(ROUNDED_RADIUS_MM, EXPORT_DPI);
+      const r = Math.max(4, Math.min(padPx, Math.min(w, h) / 2));
       return (
-        `M ${r} 0 L ${w - r} 0 ` +
-        `A ${r} ${r} 0 0 1 ${w} ${r} ` +
-        `L ${w} ${h - r} ` +
-        `A ${r} ${r} 0 0 1 ${w - r} ${h} ` +
-        `L ${r} ${h} ` +
-        `A ${r} ${r} 0 0 1 0 ${h - r} ` +
-        `L 0 ${r} ` +
-        `A ${r} ${r} 0 0 1 ${r} 0 Z`
+        `M ${r.toFixed(2)} 0 L ${(w - r).toFixed(2)} 0 ` +
+        `A ${r} ${r} 0 0 1 ${w} ${r.toFixed(2)} ` +
+        `L ${w} ${(h - r).toFixed(2)} ` +
+        `A ${r} ${r} 0 0 1 ${(w - r).toFixed(2)} ${h} ` +
+        `L ${r.toFixed(2)} ${h} ` +
+        `A ${r} ${r} 0 0 1 0 ${(h - r).toFixed(2)} ` +
+        `L 0 ${r.toFixed(2)} ` +
+        `A ${r} ${r} 0 0 1 ${r.toFixed(2)} 0 Z`
       );
     }
 
@@ -2461,6 +2470,8 @@ export default function StickerCanvasClient({
           shape,
           canvasW: canvas.width,
           canvasH: canvas.height,
+          baseWidthPx,   // tatsächliche Sticker-Breite (ohne Canvas-Padding)
+          baseHeightPx,  // tatsächliche Sticker-Höhe
           freeformMaster,
           img,
           imgAspect,

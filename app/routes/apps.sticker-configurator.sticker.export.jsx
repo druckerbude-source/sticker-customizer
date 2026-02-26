@@ -125,10 +125,14 @@ function sanitizeSvgPathD(d) {
 function buildCutlinePathTag({ d, strokePx, color = "#ff00ff" }) {
   const dd = sanitizeSvgPathD(d);
   if (!dd) return "";
-  const sw = Math.max(0.5, Number(strokePx) || 2);
-  // vector-effect non-scaling-stroke ist ok, aber Shopify/SVG Viewer ignorieren das manchmal.
-  // Schaden tut’s nicht – Cutline bleibt sichtbar.
-  return `<path d="${dd}" fill="none" stroke="${color}" stroke-width="${sw}" vector-effect="non-scaling-stroke" />`;
+  const sw = Math.max(0.5, Number(strokePx) || 1);
+  return `<path d="${dd}" fill="none" stroke="${color}" stroke-width="${sw}" />`;
+}
+
+function wrapCutContour(inner) {
+  if (!inner) return "";
+  // id="CutContour" ist der Standard-Layer-Name für Plotter (Silhouette, Graphtec, Roland, Cricut).
+  return `<g id="CutContour">\n  ${inner}\n</g>`;
 }
 
 export async function action({ request }) {
@@ -272,34 +276,40 @@ export async function action({ request }) {
 
       // 2) Cutline / Clip
       let cutPath = "";
-      const fallbackStrokeW = Math.max(2, Math.round(Math.min(exportW, exportH) * 0.01));
+      const strokeW = Number.isFinite(Number(cutlineStrokePx)) ? Number(cutlineStrokePx) : 1;
 
-      // ✅ If client sent a vector cutline, prefer it
+      // ✅ Vektorpfad vom Client (z.B. Freeform-Tracing) hat Priorität
       const wantsCutline = !!cutlineEnabled;
       const cutlineD = sanitizeSvgPathD(cutlinePathD);
-      const strokeW = Number.isFinite(Number(cutlineStrokePx)) ? Number(cutlineStrokePx) : fallbackStrokeW;
 
       if (wantsCutline && cutlineD) {
-        cutPath = buildCutlinePathTag({ d: cutlineD, strokePx: strokeW, color: "#ff00ff" });
-      } else {
-        // Fallback: alte Shape-Cutlines
-        if (shapeKey !== "freeform") {
-          if (shapeKey === "round") {
-            const r = Math.min(exportW, exportH) / 2;
-            const cx = exportW / 2;
-            const cy = exportH / 2;
-            cutPath = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
-          } else if (shapeKey === "oval") {
-            const cx = exportW / 2;
-            const cy = exportH / 2;
-            cutPath = `<ellipse cx="${cx}" cy="${cy}" rx="${exportW / 2}" ry="${exportH / 2}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
-          } else if (shapeKey === "rounded") {
-            const radius = Math.round(Math.min(exportW, exportH) * 0.2);
-            cutPath = `<rect x="0" y="0" width="${exportW}" height="${exportH}" rx="${radius}" ry="${radius}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
-          } else {
-            cutPath = `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
-          }
+        // Vektorpfad direkt verwenden (Freeform oder Client-generierte Form)
+        cutPath = wrapCutContour(buildCutlinePathTag({ d: cutlineD, strokePx: strokeW, color: "#ff00ff" }));
+      } else if (wantsCutline && shapeKey !== "freeform") {
+        // Für geometrische Formen: native SVG-Elemente – präziser als approximierte Pfade.
+        // rectWidthPx/rectHeightPx = tatsächliche Sticker-Maße (ohne Canvas-Padding bei round/oval).
+        const rw = clampInt(rectWidthPx ?? exportW, 1, 20000);
+        const rh = clampInt(rectHeightPx ?? exportH, 1, 20000);
+        const cx = exportW / 2;
+        const cy = exportH / 2;
+        let shapeEl = "";
+
+        if (shapeKey === "round") {
+          const r = Math.min(rw, rh) / 2;
+          shapeEl = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`;
+        } else if (shapeKey === "oval") {
+          shapeEl = `<ellipse cx="${cx}" cy="${cy}" rx="${rw / 2}" ry="${rh / 2}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`;
+        } else if (shapeKey === "rounded") {
+          // Eckenradius ≈ Differenz zwischen Canvas und Sticker-Maß (= Padding)
+          const padX = Math.max(0, Math.round((exportW - rw) / 2));
+          const padY = Math.max(0, Math.round((exportH - rh) / 2));
+          const radius = Math.max(4, Math.min(padX, padY, Math.min(exportW, exportH) / 2));
+          shapeEl = `<rect x="0" y="0" width="${exportW}" height="${exportH}" rx="${radius}" ry="${radius}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`;
+        } else {
+          shapeEl = `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`;
         }
+
+        cutPath = wrapCutContour(shapeEl);
       }
 
       const preserve = getPreserve(shapeKey);
@@ -316,7 +326,7 @@ export async function action({ request }) {
       if (freeformMaskOk && !(wantsCutline && cutlineD)) {
         const maskId = "ffmask_" + ts.toString(36);
         const cutFilterId = "ffcut_" + ts.toString(36);
-        const cutRadius = Math.max(1, Math.round(fallbackStrokeW / 2));
+        const cutRadius = Math.max(1, Math.round(strokeW / 2));
 
         defsExtra = `
 <defs>
@@ -419,36 +429,38 @@ export async function action({ request }) {
 
     const wantsCutline = !!cutlineEnabled;
     const cutlineD = sanitizeSvgPathD(cutlinePathD);
-    const fallbackStrokeW = Math.max(2, Math.round(Math.min(w, h) * 0.01));
-    const strokeW = Number.isFinite(Number(cutlineStrokePx)) ? Number(cutlineStrokePx) : fallbackStrokeW;
+    const strokeW = Number.isFinite(Number(cutlineStrokePx)) ? Number(cutlineStrokePx) : 1;
 
-    // ✅ If client sends pathD, we can use it for clip AND cutline
+    // Tatsächliche Sticker-Maße (in MODE 2 meist = w/h, da kein Canvas-Padding)
+    const rw = clampInt(rectWidthPx ?? w, 1, 20000);
+    const rh = clampInt(rectHeightPx ?? h, 1, 20000);
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // ✅ Vektorpfad vom Client nutzen (Freeform-Tracing oder Client-generiert)
     if (wantsCutline && cutlineD && shapeKey !== "freeform") {
       clipShape = `<path d="${cutlineD}" />`;
-      cutPath = buildCutlinePathTag({ d: cutlineD, strokePx: strokeW, color: "#ff00ff" });
+      cutPath = wrapCutContour(buildCutlinePathTag({ d: cutlineD, strokePx: strokeW, color: "#ff00ff" }));
     } else {
       if (shapeKey === "round") {
-        const cx = w / 2;
-        const cy = h / 2;
-        const r = Math.min(w, h) / 2;
+        const r = Math.min(rw, rh) / 2;
         clipShape = `<circle cx="${cx}" cy="${cy}" r="${r}" />`;
-        cutPath = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+        cutPath = wantsCutline ? wrapCutContour(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`) : "";
       } else if (shapeKey === "oval") {
-        const cx = w / 2;
-        const cy = h / 2;
-        clipShape = `<ellipse cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}" />`;
-        cutPath = `<ellipse cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+        clipShape = `<ellipse cx="${cx}" cy="${cy}" rx="${rw / 2}" ry="${rh / 2}" />`;
+        cutPath = wantsCutline ? wrapCutContour(`<ellipse cx="${cx}" cy="${cy}" rx="${rw / 2}" ry="${rh / 2}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`) : "";
       } else if (shapeKey === "rounded") {
-        const radius = Math.min(w, h) * 0.2;
+        const padX = Math.max(0, Math.round((w - rw) / 2));
+        const padY = Math.max(0, Math.round((h - rh) / 2));
+        const radius = Math.max(4, Math.min(padX, padY, Math.min(w, h) / 2));
         clipShape = `<rect x="0" y="0" width="${w}" height="${h}" rx="${radius}" ry="${radius}" />`;
-        cutPath = `<rect x="0" y="0" width="${w}" height="${h}" rx="${radius}" ry="${radius}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+        cutPath = wantsCutline ? wrapCutContour(`<rect x="0" y="0" width="${w}" height="${h}" rx="${radius}" ry="${radius}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`) : "";
       } else if (shapeKey === "freeform") {
         clipShape = `<rect x="0" y="0" width="${w}" height="${h}" />`;
-        // Wenn freeform ohne renderedDataUrl: wir haben hier keine zuverlässige Cutline, außer pathD kommt.
-        cutPath = wantsCutline && cutlineD ? buildCutlinePathTag({ d: cutlineD, strokePx: strokeW }) : "";
+        cutPath = wantsCutline && cutlineD ? wrapCutContour(buildCutlinePathTag({ d: cutlineD, strokePx: strokeW })) : "";
       } else {
         clipShape = `<rect x="0" y="0" width="${w}" height="${h}" />`;
-        cutPath = `<rect x="0" y="0" width="${w}" height="${h}" fill="none" stroke="#ff00ff" stroke-width="${fallbackStrokeW}" />`;
+        cutPath = wantsCutline ? wrapCutContour(`<rect x="0" y="0" width="${w}" height="${h}" fill="none" stroke="#ff00ff" stroke-width="${strokeW}" />`) : "";
       }
     }
 
