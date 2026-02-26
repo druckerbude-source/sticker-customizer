@@ -2717,99 +2717,146 @@ export default function StickerCanvasClient({
   // ==============================
   // Render Helpers
   // ==============================
+  // ── Shape-Kacheln (StickerApp.de visuelles Grid) ──────────────
+  const SHAPE_TILES_UI = [
+    { key: "square",                 label: "Quadrat",     w: 20, h: 20, r: 0      },
+    { key: "square_rounded",         label: "Abgerundet",  w: 20, h: 20, r: 6      },
+    { key: "rect",                   label: "Rechteck",    w: 28, h: 18, r: 0      },
+    { key: "rect_rounded",           label: "Rect. abg.",  w: 28, h: 18, r: 5      },
+    { key: "rect_landscape",         label: "Quer",        w: 28, h: 14, r: 0      },
+    { key: "rect_landscape_rounded", label: "Quer abg.",   w: 28, h: 14, r: 4      },
+    { key: "round",                  label: "Rund",        w: 20, h: 20, r: "50%"  },
+    { key: "oval",                   label: "Oval",        w: 26, h: 18, r: "50%"  },
+    { key: "oval_portrait",          label: "Oval hoch",   w: 16, h: 24, r: "50%"  },
+    { key: "freeform",               label: "Freiform",    w: null, h: null, r: null },
+  ];
+
   function renderConfigurator() {
     return (
       <>
-        <div className="scBlock">
-          <label className="scField">
-            <span className="scLabel">Form</span>
-            <select
-              className="scSelect"
-              value={shape}
-              onChange={(e) => {
-                setAddedMsg("");
-                setShape(e.target.value);
-              }}
-            >
-              <option value="square">Quadratisch</option>
-              <option value="square_rounded">Quadratisch abgerundet</option>
+        {/* ── Panel-Titel ──────────────────────────────────────────── */}
+        <div className="scPanelTitle">Sticker konfigurieren</div>
 
-              <option value="rect">Rechteck</option>
-              <option value="rect_rounded">Rechteckig abgerundet</option>
-              <option value="rect_landscape">Rechteck Quer</option>
-              <option value="rect_landscape_rounded">Rechteck Quer Abgerundet</option>
-
-              <option value="round">Rund</option>
-
-              <option value="oval">Oval</option>
-              <option value="oval_portrait">Oval stehend</option>
-
-              <option value="freeform">Freiform</option>
-            </select>
-          </label>
-
-          {shape === "freeform" ? (
-            <label className="scField">
-              <span className="scLabel">Größe</span>
-              <select
-                className="scSelect"
-                value={String(freeformLongSideCm)}
-                onChange={(e) => {
-                  setAddedMsg("");
-                  const v = parseNumberDE(e.target.value);
-                  if (!Number.isFinite(v)) return;
-                  setFreeformLongSideCm(v);
-                }}
+        {/* ── Schritt 1: Form ──────────────────────────────────────── */}
+        <div className="scStepHeader">
+          <span className="scStepNum">1</span>
+          Form wählen
+        </div>
+        <div className="scShapeGrid">
+          {SHAPE_TILES_UI.map(({ key, label, w, h, r }) => {
+            const active = shape === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                className={`scShapeTile${active ? " scShapeTile--active" : ""}`}
+                onClick={() => { setAddedMsg(""); setShape(key); }}
               >
-                {FREEFORM_LONGSIDE_PRESETS_CM.map((cm) => {
-                  const ar = freeformCutAspect || imgAspect || 1;
-                  const dims = freeformDimsFromLongSide(cm, ar);
-                  const label = `${fmtCm(cm)} cm (≈ ${dims.wCm.toFixed(2)} × ${dims.hCm.toFixed(2)} cm)`;
-                  return (
-                    <option key={`ff-${cm}`} value={String(cm)}>
-                      {label}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
-          ) : (
-            <label className="scField">
-              <span className="scLabel">Größe</span>
-              <select
-                className="scSelect"
-                value={sizeKey}
-                onChange={(e) => setSizeKey(e.target.value)}
-                disabled={!availableSizes.length}
-              >
-                {!availableSizes.length ? (
-                  <option value="">{catalog ? "Keine Größen verfügbar" : "Lade Größen..."}</option>
+                {w !== null ? (
+                  <div
+                    className="scShapeTileIcon"
+                    style={{ width: w, height: h, borderRadius: r }}
+                  />
                 ) : (
-                  availableSizes.map((v) => (
-                    <option key={`${String(shape)}-${String(colorKey)}-${v.sizeKey}`} value={v.sizeKey}>
-                      {v.label}
-                    </option>
-                  ))
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <path
+                      d="M10 2 L14 7 L19 8 L15 13 L16 18 L10 15 L4 18 L5 13 L1 8 L6 7 Z"
+                      fill={active ? "#e10600" : "rgba(255,255,255,0.25)"}
+                    />
+                  </svg>
                 )}
-              </select>
-            </label>
-          )}
+                <span className="scShapeTileLabel">{label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <div className="scDivider" />
-
-        <label className="scField">
-          <span className="scLabel">Hintergrund</span>
-          <select className="scSelect" value={bgMode} onChange={(e) => setBgMode(e.target.value)}>
-            <option value="color">Farbig</option>
-            <option value="white">Weiß</option>
-            {/* <option value="transparent">Transparent</option> */}
-          </select>
-        </label>
+        {/* ── Schritt 2: Größe ─────────────────────────────────────── */}
+        <div className="scStepHeader">
+          <span className="scStepNum">2</span>
+          Größe wählen
+        </div>
 
         {shape === "freeform" ? (
-          <label className="scField">
-            <span className="scLabel">Freiform-Rand (mm)</span>
+          <select
+            className="scSelect"
+            value={String(freeformLongSideCm)}
+            onChange={(e) => {
+              setAddedMsg("");
+              const v = parseNumberDE(e.target.value);
+              if (!Number.isFinite(v)) return;
+              setFreeformLongSideCm(v);
+            }}
+          >
+            {FREEFORM_LONGSIDE_PRESETS_CM.map((cm) => {
+              const ar = freeformCutAspect || imgAspect || 1;
+              const dims = freeformDimsFromLongSide(cm, ar);
+              const label = `${fmtCm(cm)} cm (≈ ${dims.wCm.toFixed(2)} × ${dims.hCm.toFixed(2)} cm)`;
+              return (
+                <option key={`ff-${cm}`} value={String(cm)}>{label}</option>
+              );
+            })}
+          </select>
+        ) : (
+          <select
+            className="scSelect"
+            value={sizeKey}
+            onChange={(e) => setSizeKey(e.target.value)}
+            disabled={!availableSizes.length}
+          >
+            {!availableSizes.length ? (
+              <option value="">{catalog ? "Keine Größen verfügbar" : "Lade Größen…"}</option>
+            ) : (
+              availableSizes.map((v) => (
+                <option key={`${String(shape)}-${String(colorKey)}-${v.sizeKey}`} value={v.sizeKey}>
+                  {v.label}
+                </option>
+              ))
+            )}
+          </select>
+        )}
+
+        {/* ── Schritt 3: Material ──────────────────────────────────── */}
+        <div className="scStepHeader">
+          <span className="scStepNum">3</span>
+          Material
+        </div>
+        <div className="scMaterialGrid">
+          {[
+            {
+              key: "white", label: "Weiß",
+              icon: <div style={{ width: 22, height: 22, borderRadius: 4, background: "#fff", border: "1px solid rgba(0,0,0,0.15)" }} />,
+            },
+            {
+              key: "color", label: "Farbig",
+              icon: <div style={{ width: 22, height: 22, borderRadius: 4, background: "linear-gradient(135deg,#ff4d4d,#ffb800,#00c8ff)" }} />,
+            },
+          ].map(({ key, label, icon }) => (
+            <button
+              key={key}
+              type="button"
+              className={`scMaterialBtn${bgMode === key ? " scMaterialBtn--active" : ""}`}
+              onClick={() => setBgMode(key)}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {bgMode === "color" ? (
+          <div className="scFieldRow" style={{ marginTop: 8 }}>
+            <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--font)" }}>Hintergrundfarbe</span>
+            <input className="scColor" type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} />
+          </div>
+        ) : null}
+
+        {shape === "freeform" ? (
+          <>
+            <div className="scStepHeader">
+              <span className="scStepNum" style={{ fontSize: 8 }}>↳</span>
+              Freiform-Rand
+            </div>
             <select
               className="scSelect"
               value={String(freeformBorderMm)}
@@ -2819,36 +2866,17 @@ export default function StickerCanvasClient({
               }}
             >
               {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((mm) => (
-                <option key={`ffb-${mm}`} value={String(mm)}>
-                  {mm.toFixed(1)} mm
-                </option>
+                <option key={`ffb-${mm}`} value={String(mm)}>{mm.toFixed(1)} mm</option>
               ))}
             </select>
-          </label>
+          </>
         ) : null}
 
-        {bgMode === "color" ? (
-          <div className="scFieldRow">
-            <div className="scLabel">Hintergrundfarbe</div>
-            <input className="scColor" type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} />
-          </div>
-        ) : null}
-
-        <div className="scDivider" />
-
-        <div className="scStats">
-          <div className="scStatLine">
-            <div className="scStatLabel">Sticker pro Set:</div>
-            <div className="scStatValue">{realPieces}</div>
-          </div>
-
-          <div className="scStatLine">
-            <div className="scStatLabel">Preis:</div>
-            <div className="scStatValue">{`${priceTotal.toFixed(2)} €`}</div>
-          </div>
+        {/* ── Schritt 4: Motiv ─────────────────────────────────────── */}
+        <div className="scStepHeader">
+          <span className="scStepNum">4</span>
+          Motiv hochladen
         </div>
-
-        <div className="scDivider" />
 
         <input
           ref={fileInputRef}
@@ -2858,10 +2886,44 @@ export default function StickerCanvasClient({
           onChange={(e) => uploadFile(e.target.files?.[0])}
         />
 
-        {imageUrl ? (
-          <button type="button" className="scBtn scBtnSecondary" onClick={openFilePicker}>
-            {uploading ? "Upload…" : "Bild ändern"}
-          </button>
+        <button
+          type="button"
+          className={`scBtn ${imageUrl ? "scBtnSecondary" : "scBtnUpload"}`}
+          style={{ marginTop: 0 }}
+          onClick={openFilePicker}
+        >
+          {uploading ? "Wird hochgeladen…" : imageUrl ? "Bild ändern" : "Bild auswählen"}
+        </button>
+
+        {/* ── Preis & CTA ──────────────────────────────────────────── */}
+        <div className="scDivider" />
+
+        <div className="scPriceCard">
+          <div className="scPriceLine">
+            <span className="scPriceLabel">Sticker pro Set</span>
+            <span className="scPriceValue">{realPieces}</span>
+          </div>
+          <div className="scPriceLine" style={{ marginBottom: 0 }}>
+            <span className="scPriceLabel">Gesamtpreis</span>
+            <span className="scPriceBig">{priceTotal.toFixed(2)} €</span>
+          </div>
+          {selectedVariantTitle ? (
+            <div className="scVariantHint">{selectedVariantTitle}</div>
+          ) : null}
+        </div>
+
+        <button type="button" className="scBtn scBtnPrimary" onClick={addToCart} disabled={!imageUrl}>
+          In den Warenkorb
+        </button>
+
+        {addedMsg ? (
+          <div style={{
+            marginTop: 8, padding: "8px 12px", borderRadius: 8,
+            background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.25)",
+            color: "#86efac", fontSize: 11, fontFamily: "var(--font)", lineHeight: 1.4,
+          }}>
+            ✓ {addedMsg}
+          </div>
         ) : null}
 
         <label className="scCheck">
@@ -2872,12 +2934,6 @@ export default function StickerCanvasClient({
           />
           <span>Nach dem Hinzufügen zum Warenkorb wechseln</span>
         </label>
-
-        {addedMsg ? <div className="scInfo">{addedMsg}</div> : null}
-
-        <button type="button" className="scBtn scBtnPrimary" onClick={addToCart} disabled={!imageUrl}>
-          In den Warenkorb
-        </button>
 
         {errorMsg ? <div className="scError">{errorMsg}</div> : null}
       </>
@@ -2983,27 +3039,33 @@ export default function StickerCanvasClient({
 const SC_CSS = `
 /* Root */
 .scWrap{
-  --bg: #0b0f16;
-  --panel: #0b0f16;
-  --card: rgba(255,255,255,0.04);
-  --border: rgba(255,255,255,0.10);
-  --border2: rgba(255,255,255,0.16);
-  --text: rgba(255,255,255,0.92);
-  --muted: rgba(255,255,255,0.72);
-  --muted2: rgba(255,255,255,0.56);
-  --shadow: 0 20px 60px rgba(0,0,0,0.45);
+  /* ── StickerApp.de Design Tokens ─────────────────────────────── */
+  --bg:      #040404;
+  --panel:   #0f0f13;
+  --card:    rgba(255,255,255,0.04);
+  --border:  rgba(255,255,255,0.09);
+  --border2: rgba(255,255,255,0.14);
+  --text:    rgba(255,255,255,0.92);
+  --muted:   rgba(255,255,255,0.55);
+  --muted2:  rgba(255,255,255,0.38);
+  --accent:  #e10600;
+  --input-bg:#1a1a22;
+  --shadow:  0 24px 80px rgba(0,0,0,0.65);
+  --font:    'Noto Sans','Inter',system-ui,sans-serif;
+  /* ─────────────────────────────────────────────────────────────── */
 
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  border-radius: 22px;
+  border-radius: 16px;
   overflow: hidden;
   background: var(--bg);
   box-shadow: var(--shadow);
+  font-family: var(--font);
 
   display: grid;
-  grid-template-columns: 40% 60%;
-  min-height: 520px;
+  grid-template-columns: 300px 1fr;
+  min-height: 560px;
 }
 
 /* Desktop */
@@ -3028,34 +3090,184 @@ const SC_CSS = `
 
 /* Panels */
 .scLeft{
-  padding: 16px;
+  padding: 18px 16px;
   background: var(--panel);
   color: #fff;
   display: grid;
-  gap: 10px;
+  gap: 0;
   align-content: start;
+  overflow-y: auto;
+  font-family: var(--font);
 }
 
 @media (max-width: 900px){
   .scLeft{
     padding: 14px;
-    gap: 12px;
+    gap: 0;
   }
 }
 
 .scRight{
   background: var(--bg);
-  padding: 24px;
+  padding: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 520px;
+  min-height: 560px;
 }
 
 @media (max-width: 900px){
   .scRight{
     padding: 14px;
+    min-height: 300px;
   }
+}
+
+/* ── Panel Titel ─────────────────────────────────────────────── */
+.scPanelTitle{
+  font-size: 15px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.01em;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font);
+}
+
+/* ── Step Header (nummerierte Abschnitte) ────────────────────── */
+.scStepHeader{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--font);
+}
+.scStepNum{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+/* ── Shape Tile Grid ─────────────────────────────────────────── */
+.scShapeGrid{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.scShapeTile{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  cursor: pointer;
+  min-height: 58px;
+  transition: border-color 0.12s, background 0.12s;
+  font-family: var(--font);
+  color: rgba(255,255,255,0.45);
+}
+.scShapeTile:hover{
+  border-color: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.05);
+}
+.scShapeTile--active{
+  border-color: var(--accent);
+  background: rgba(225,6,0,0.10);
+  color: var(--accent);
+}
+.scShapeTileIcon{
+  background: rgba(255,255,255,0.25);
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+.scShapeTile--active .scShapeTileIcon{
+  background: var(--accent);
+}
+.scShapeTileLabel{
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* ── Material Swatches ───────────────────────────────────────── */
+.scMaterialGrid{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.scMaterialBtn{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.55);
+  font-family: var(--font);
+  transition: border-color 0.12s, background 0.12s;
+  line-height: 1.2;
+}
+.scMaterialBtn--active{
+  border-color: var(--accent);
+  background: rgba(225,6,0,0.10);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ── Preis-Card ──────────────────────────────────────────────── */
+.scPriceCard{
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.scPriceLine{
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.scPriceLabel{ font-size: 11px; color: var(--muted); font-family: var(--font); }
+.scPriceValue{ font-size: 14px; font-weight: 700; color: #fff; font-family: var(--font); }
+.scPriceBig{
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--accent);
+  font-family: var(--font);
+  letter-spacing: -0.02em;
+}
+.scVariantHint{
+  font-size: 10px;
+  color: var(--muted2);
+  margin-top: 4px;
+  font-family: var(--font);
 }
 
 /* Fields */
@@ -3069,18 +3281,25 @@ const SC_CSS = `
 
 .scSelect{
   width: 100%;
-  padding: 12px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: #0e1624;
+  padding: 9px 28px 9px 10px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: var(--input-bg);
   color: #fff;
   outline: none;
-  font-size: 14px;
+  font-size: 13px;
+  font-family: var(--font);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.4)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
 }
 
 @media (max-width: 900px){
   .scSelect{
-    padding: 14px 12px;
+    padding: 12px 28px 12px 10px;
     font-size: 16px; /* iOS zoom fix */
   }
 }
@@ -3104,59 +3323,74 @@ const SC_CSS = `
 /* Divider */
 .scDivider{
   height: 1px;
-  background: rgba(255,255,255,0.10);
-  margin: 6px 0;
+  background: var(--border);
+  margin: 14px 0;
 }
 
-/* Stats */
-.scStats{ display:grid; gap: 6px; }
+/* Stats (legacy – weiterhin genutzt als Fallback) */
+.scStats{ display:grid; gap: 4px; }
 .scStatLine{
   display:flex;
   align-items:baseline;
   justify-content:space-between;
   gap: 10px;
-  padding: 4px 0;
+  padding: 3px 0;
 }
-.scStatLabel{ font-size: 13px; color: var(--muted); }
-.scStatValue{ font-size: 14px; font-weight: 800; color: #fff; }
+.scStatLabel{ font-size: 11px; color: var(--muted); font-family: var(--font); }
+.scStatValue{ font-size: 15px; font-weight: 800; color: #fff; font-family: var(--font); }
 
 /* Buttons */
 .scBtn{
   width: 100%;
-  border-radius: 999px;
+  border-radius: 10px;
   border: none;
   cursor: pointer;
-  font-weight: 800;
+  font-weight: 700;
   padding: 12px 14px;
-  font-size: 14px;
+  font-size: 13px;
+  font-family: var(--font);
+  margin-top: 8px;
 }
 
 @media (max-width: 900px){
   .scBtn{
     padding: 14px 14px;
     font-size: 16px;
+    border-radius: 10px;
   }
 }
 
 .scBtnPrimary{
-  background: #16a34a;
+  background: var(--accent);
   color: #fff;
+  font-weight: 800;
+  box-shadow: 0 4px 18px rgba(225,6,0,0.30);
+  letter-spacing: 0.02em;
 }
 .scBtnPrimary:disabled{
-  opacity: .55;
+  opacity: .45;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .scBtnSecondary{
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.18);
-  color: #fff;
+  background: rgba(255,255,255,0.05);
+  border: 1.5px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.8);
+}
+
+.scBtnUpload{
+  background: rgba(255,255,255,0.03);
+  border: 1.5px dashed rgba(225,6,0,0.45);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .scBtnHero{
-  background: #e10600;
+  background: var(--accent);
   color: #fff;
   max-width: 520px;
+  box-shadow: 0 4px 20px rgba(225,6,0,0.30);
 }
 
 .scCheck{
