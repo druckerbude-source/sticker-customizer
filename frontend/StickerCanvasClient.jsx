@@ -2897,15 +2897,6 @@ export default function StickerCanvasClient({
           onChange={(e) => uploadFile(e.target.files?.[0])}
         />
 
-        <button
-          type="button"
-          className={`scBtn ${imageUrl ? "scBtnSecondary" : "scBtnUpload"}`}
-          style={{ marginTop: 0 }}
-          onClick={openFilePicker}
-        >
-          {uploading ? "Wird hochgeladen…" : imageUrl ? "Bild ändern" : "Bild auswählen"}
-        </button>
-
         {/* ── Preis & CTA ──────────────────────────────────────────── */}
         <div className="scDivider" />
 
