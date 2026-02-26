@@ -86,13 +86,26 @@ const FALLBACK_COLORWAYS = [
 // Font: Noto Sans (400, 700, 900)
 // ────────────────────────────────────────────────────────────────────────────
 const SA_ORANGE = "#F26419";
-// eslint-disable-next-line no-unused-vars
-const SA_ORANGE_HOVER = "#d45512";
 const SA_BG = "#040404";
 const SA_PANEL = "#0f0f13";
 const SA_INPUT_BG = "#1a1a22";
 const SA_BORDER = "rgba(255,255,255,0.09)";
 const SA_FONT = "'Noto Sans', 'Inter', system-ui, sans-serif";
+
+// ─── Shape Tiles ─────────────────────────────────────────────────────────────
+// Jede Form hat ein visuelles CSS-Shape-Vorschau-Icon
+const SHAPE_TILES = [
+  { key: "square",               label: "Quadrat",      w: 20, h: 20, r: 0        },
+  { key: "square_rounded",       label: "Quadrat abg.", w: 20, h: 20, r: 6        },
+  { key: "rect",                 label: "Rechteck",     w: 28, h: 18, r: 0        },
+  { key: "rect_rounded",         label: "Rect. abg.",   w: 28, h: 18, r: 5        },
+  { key: "rect_landscape",       label: "Quer",         w: 28, h: 14, r: 0        },
+  { key: "rect_landscape_rounded", label: "Quer abg.", w: 28, h: 14, r: 4        },
+  { key: "round",                label: "Rund",         w: 20, h: 20, r: "50%"   },
+  { key: "oval",                 label: "Oval",         w: 26, h: 18, r: "50%"   },
+  { key: "oval_portrait",        label: "Oval hoch",    w: 16, h: 24, r: "50%"   },
+  { key: "freeform",             label: "Freiform",     w: null, h: null, r: null },
+];
 
 // ==============================
 // Helpers
@@ -2742,176 +2755,163 @@ export default function StickerCanvasClient({
   return (
     <div style={wrapperStyle}>
       <div style={leftPanelStyle}>
-        <div style={styles.sectionTitle}>Form & Größe</div>
 
-        <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-          <label>
-            Form
-            <select
-              value={shape}
-              onChange={(e) => {
-                setAddedMsg("");
-                setShape(e.target.value);
-              }}
-              style={{ width: "100%", marginTop: 4, ...styles.select }}
-            >
-              <option value="square">Quadratisch</option>
-              <option value="square_rounded">Quadratisch abgerundet</option>
+        {/* ── Panel-Titel ──────────────────────────────────────────────── */}
+        <div style={styles.panelHeader}>Sticker konfigurieren</div>
 
-              <option value="rect">Rechteck</option>
-              <option value="rect_rounded">Rechteckig abgerundet</option>
-              <option value="rect_landscape">Rechteck Quer</option>
-              <option value="rect_landscape_rounded">Rechteck Quer Abgerundet</option>
-
-              <option value="round">Rund</option>
-
-              <option value="oval">Oval</option>
-              <option value="oval_portrait">Oval stehend</option>
-
-              <option value="freeform">Freiform</option>
-            </select>
-          </label>
-
-          {/* ✅ Größe: feste Formen = Dropdown, Freiform = freie Eingabe */}
-          {shape === "freeform" ? (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-  <label>
-    Breite (cm)
-    <input
-      inputMode="decimal"
-      type="number"
-      step="0.5"
-      min={String(MIN_EDGE_CM)}
-      max="20"
-      value={Number.isFinite(billingWidthCm) ? String(Number(billingWidthCm).toFixed(2)) : ""}
-      onChange={(e) => {
-        setAddedMsg("");
-        lastFreeformEditRef.current = "w";
-
-        const wIn = parseNumberDE(e.target.value);
-        const ar = freeformCutAspect || imgAspect || 1;
-
-        const r = enforceAspectWithMinEdge({
-          wCm: wIn,
-          hCm: billingHeightCm,
-          aspectWdivH: ar,
-          edited: "w",
-          minEdgeCm: MIN_EDGE_CM,
-          maxEdgeCm: 20,
-        });
-
-        // ✅ auf 2 Nachkommastellen begrenzen
-        setBillingWidthCm(Number(r.wCm.toFixed(2)));
-        setBillingHeightCm(Number(r.hCm.toFixed(2)));
-      }}
-      style={{ width: "100%", marginTop: 4, ...styles.input }}
-    />
-  </label>
-
-  <label>
-    Höhe (cm)
-    <input
-      inputMode="decimal"
-      type="number"
-      step="0.5"
-      min={String(MIN_EDGE_CM)}
-      max="20"
-      value={Number.isFinite(billingHeightCm) ? String(Number(billingHeightCm).toFixed(2)) : ""}
-      onChange={(e) => {
-        setAddedMsg("");
-        lastFreeformEditRef.current = "h";
-
-        const hIn = parseNumberDE(e.target.value);
-        const ar = freeformCutAspect || imgAspect || 1;
-
-        const r = enforceAspectWithMinEdge({
-          wCm: billingWidthCm,
-          hCm: hIn,
-          aspectWdivH: ar,
-          edited: "h",
-          minEdgeCm: MIN_EDGE_CM,
-          maxEdgeCm: 20,
-        });
-
-        // ✅ auf 2 Nachkommastellen begrenzen
-        setBillingWidthCm(Number(r.wCm.toFixed(2)));
-        setBillingHeightCm(Number(r.hCm.toFixed(2)));
-      }}
-      style={{ width: "100%", marginTop: 4, ...styles.input }}
-    />
-  </label>
-</div>
-
-
-              
-            </>
-          ) : (
-            <label>
-              Größe
-              <select
-                value={sizeKey}
-                onChange={(e) => setSizeKey(e.target.value)}
-                disabled={!availableSizes.length}
-                style={{ width: "100%", marginTop: 4, ...styles.select }}
+        {/* ── Schritt 1: Form ──────────────────────────────────────────── */}
+        <div style={styles.stepHeader}>
+          <span style={styles.stepNum}>1</span>
+          Form wählen
+        </div>
+        <div style={styles.shapesGrid}>
+          {SHAPE_TILES.map(({ key, label, w, h, r }) => {
+            const active = shape === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => { setAddedMsg(""); setShape(key); }}
+                style={{
+                  ...styles.shapeTile,
+                  borderColor: active ? SA_ORANGE : "rgba(255,255,255,0.08)",
+                  background: active ? "rgba(242,100,25,0.10)" : "rgba(255,255,255,0.03)",
+                  color: active ? SA_ORANGE : "rgba(255,255,255,0.5)",
+                }}
               >
-                {!availableSizes.length ? (
-                  <option value="">{catalog ? "Keine Größen verfügbar" : "Lade Größen..."}</option>
+                {w !== null ? (
+                  <div
+                    style={{
+                      width: w,
+                      height: h,
+                      borderRadius: r,
+                      background: active ? SA_ORANGE : "rgba(255,255,255,0.3)",
+                      flexShrink: 0,
+                    }}
+                  />
                 ) : (
-                  availableSizes.map((v) => (
-                    <option key={`${String(shape)}-${String(colorKey)}-${v.sizeKey}`} value={v.sizeKey}>
-                      {v.label}
-                    </option>
-                  ))
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <path
+                      d="M10 2 L14 7 L19 8 L15 13 L16 18 L10 15 L4 18 L5 13 L1 8 L6 7 Z"
+                      fill={active ? SA_ORANGE : "rgba(255,255,255,0.3)"}
+                    />
+                  </svg>
                 )}
-              </select>
-            </label>
-          )}
+                <span style={styles.shapeTileLabel}>{label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <div style={styles.label}>Material</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 4 }}>
+        {/* ── Schritt 2: Größe ─────────────────────────────────────────── */}
+        <div style={styles.stepHeader}>
+          <span style={styles.stepNum}>2</span>
+          Größe wählen
+        </div>
+
+        {shape === "freeform" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <label style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", fontFamily: SA_FONT }}>
+              Breite (cm)
+              <input
+                inputMode="decimal"
+                type="number"
+                step="0.5"
+                min={String(MIN_EDGE_CM)}
+                max="20"
+                value={Number.isFinite(billingWidthCm) ? String(Number(billingWidthCm).toFixed(2)) : ""}
+                onChange={(e) => {
+                  setAddedMsg("");
+                  lastFreeformEditRef.current = "w";
+                  const wIn = parseNumberDE(e.target.value);
+                  const ar = freeformCutAspect || imgAspect || 1;
+                  const result = enforceAspectWithMinEdge({
+                    wCm: wIn, hCm: billingHeightCm, aspectWdivH: ar,
+                    edited: "w", minEdgeCm: MIN_EDGE_CM, maxEdgeCm: 20,
+                  });
+                  setBillingWidthCm(Number(result.wCm.toFixed(2)));
+                  setBillingHeightCm(Number(result.hCm.toFixed(2)));
+                }}
+                style={{ width: "100%", marginTop: 4, ...styles.input }}
+              />
+            </label>
+            <label style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", fontFamily: SA_FONT }}>
+              Höhe (cm)
+              <input
+                inputMode="decimal"
+                type="number"
+                step="0.5"
+                min={String(MIN_EDGE_CM)}
+                max="20"
+                value={Number.isFinite(billingHeightCm) ? String(Number(billingHeightCm).toFixed(2)) : ""}
+                onChange={(e) => {
+                  setAddedMsg("");
+                  lastFreeformEditRef.current = "h";
+                  const hIn = parseNumberDE(e.target.value);
+                  const ar = freeformCutAspect || imgAspect || 1;
+                  const result = enforceAspectWithMinEdge({
+                    wCm: billingWidthCm, hCm: hIn, aspectWdivH: ar,
+                    edited: "h", minEdgeCm: MIN_EDGE_CM, maxEdgeCm: 20,
+                  });
+                  setBillingWidthCm(Number(result.wCm.toFixed(2)));
+                  setBillingHeightCm(Number(result.hCm.toFixed(2)));
+                }}
+                style={{ width: "100%", marginTop: 4, ...styles.input }}
+              />
+            </label>
+          </div>
+        ) : (
+          <select
+            value={sizeKey}
+            onChange={(e) => setSizeKey(e.target.value)}
+            disabled={!availableSizes.length}
+            style={{ width: "100%", ...styles.select }}
+          >
+            {!availableSizes.length ? (
+              <option value="">{catalog ? "Keine Größen verfügbar" : "Lade Größen…"}</option>
+            ) : (
+              availableSizes.map((v) => (
+                <option key={`${String(shape)}-${String(colorKey)}-${v.sizeKey}`} value={v.sizeKey}>
+                  {v.label}
+                </option>
+              ))
+            )}
+          </select>
+        )}
+
+        {/* ── Schritt 3: Material ──────────────────────────────────────── */}
+        <div style={styles.stepHeader}>
+          <span style={styles.stepNum}>3</span>
+          Material
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 5 }}>
           {[
             {
               key: "white",
               label: "Weiß",
-              icon: (
-                <div style={{ width: 22, height: 22, borderRadius: 4, background: "#fff", border: "1px solid rgba(0,0,0,0.15)" }} />
-              ),
+              preview: <div style={{ width: 22, height: 22, borderRadius: 4, background: "#fff", border: "1px solid rgba(0,0,0,0.15)" }} />,
             },
             {
               key: "transparent",
               label: "Transparent",
-              icon: (
-                <div
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 4,
-                    backgroundImage:
-                      "linear-gradient(45deg,#888 25%,transparent 25%,transparent 75%,#888 75%),linear-gradient(45deg,#888 25%,transparent 25%,transparent 75%,#888 75%)",
-                    backgroundSize: "8px 8px",
-                    backgroundPosition: "0 0,4px 4px",
-                    backgroundColor: "#ccc",
-                  }}
-                />
+              preview: (
+                <div style={{
+                  width: 22, height: 22, borderRadius: 4,
+                  backgroundImage: "linear-gradient(45deg,#888 25%,transparent 25%,transparent 75%,#888 75%),linear-gradient(45deg,#888 25%,transparent 25%,transparent 75%,#888 75%)",
+                  backgroundSize: "8px 8px",
+                  backgroundPosition: "0 0,4px 4px",
+                  backgroundColor: "#bbb",
+                }} />
               ),
             },
             {
               key: "color",
               label: "Farbig",
-              icon: (
-                <div
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 4,
-                    background: "linear-gradient(135deg,#ff4d4d,#ffb800,#00c8ff)",
-                  }}
-                />
+              preview: (
+                <div style={{ width: 22, height: 22, borderRadius: 4, background: "linear-gradient(135deg,#ff4d4d,#ffb800,#00c8ff)" }} />
               ),
             },
-          ].map(({ key, label, icon }) => {
+          ].map(({ key, label, preview }) => {
             const active = bgMode === key;
             return (
               <button
@@ -2919,24 +2919,17 @@ export default function StickerCanvasClient({
                 type="button"
                 onClick={() => setBgMode(key)}
                 style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 5,
-                  padding: "9px 4px",
-                  borderRadius: 8,
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
+                  padding: "8px 4px", borderRadius: 8,
                   border: active ? `2px solid ${SA_ORANGE}` : "2px solid rgba(255,255,255,0.08)",
                   background: active ? "rgba(242,100,25,0.10)" : "rgba(255,255,255,0.03)",
-                  color: active ? SA_ORANGE : "rgba(255,255,255,0.6)",
-                  fontSize: 10,
-                  fontWeight: active ? 700 : 500,
-                  cursor: "pointer",
-                  fontFamily: styles.wrapper.fontFamily,
+                  color: active ? SA_ORANGE : "rgba(255,255,255,0.55)",
+                  fontSize: 10, fontWeight: active ? 700 : 500,
+                  cursor: "pointer", fontFamily: SA_FONT,
                   lineHeight: 1.2,
-                  transition: "border-color 0.15s, background 0.15s",
                 }}
               >
-                {icon}
+                {preview}
                 {label}
               </button>
             );
@@ -2944,67 +2937,41 @@ export default function StickerCanvasClient({
         </div>
 
         {bgMode === "color" ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
             <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} style={styles.color} />
-            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", fontFamily: styles.wrapper.fontFamily }}>{bgColor}</span>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontFamily: SA_FONT }}>{bgColor}</span>
           </div>
         ) : null}
 
         {shape === "freeform" ? (
           <>
-           <div style={styles.label}>Freiform-Rand (mm)</div>
-<select
-  value={String(freeformBorderMm)}
-  onChange={(e) => {
-    const v = Number(String(e.target.value).replace(",", "."));
-    setFreeformBorderMm(Number.isFinite(v) ? v : 3);
-  }}
-  style={{ width: "100%", marginTop: 4, ...styles.select }}
->
-  {[1, 1.5, 2, 2.5, 3].map((mm) => (
-    <option key={`ffb-${mm}`} value={String(mm)}>
-      {mm.toFixed(1)} mm
-    </option>
-  ))}
-</select>
-
-            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>{borderDraftMm.toFixed(1)} mm</div>
-
-            <div style={{ fontSize: 12, opacity: 0.75, marginTop: 10 }}>
-              Billing-Box (effektiv):{" "}
-              <b>
-                {fmtCm(effWcm)} × {fmtCm(effHcm)} cm
-              </b>
+            <div style={styles.stepHeader}>
+              <span style={styles.stepNum}>↳</span>
+              Freiform-Rand
+            </div>
+            <select
+              value={String(freeformBorderMm)}
+              onChange={(e) => {
+                const v = Number(String(e.target.value).replace(",", "."));
+                setFreeformBorderMm(Number.isFinite(v) ? v : 3);
+              }}
+              style={{ width: "100%", ...styles.select }}
+            >
+              {[1, 1.5, 2, 2.5, 3].map((mm) => (
+                <option key={`ffb-${mm}`} value={String(mm)}>{mm.toFixed(1)} mm</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 6, fontFamily: SA_FONT }}>
+              Schnittfläche: <b style={{ color: "rgba(255,255,255,0.7)" }}>{fmtCm(effWcm)} × {fmtCm(effHcm)} cm</b>
             </div>
           </>
         ) : null}
 
-        <div style={styles.divider} />
-
-        <div style={styles.statLine}>
-          <div style={styles.statLabel}>Sticker pro Set</div>
-          <div style={{ ...styles.statValue, color: "rgba(255,255,255,0.9)" }}>{realPieces}</div>
+        {/* ── Schritt 4: Motiv hochladen ───────────────────────────────── */}
+        <div style={styles.stepHeader}>
+          <span style={styles.stepNum}>4</span>
+          Motiv hochladen
         </div>
-
-        <div style={{ ...styles.statLine, marginTop: 2 }}>
-          <div style={styles.statLabel}>Gesamtpreis</div>
-          <div style={{ ...styles.statValue, fontSize: 18, color: SA_ORANGE }}>{`${priceTotal.toFixed(2)} €`}</div>
-        </div>
-
-        {selectedVariantTitle ? (
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 11,
-              color: "rgba(255,255,255,0.35)",
-              fontFamily: styles.wrapper.fontFamily,
-            }}
-          >
-            {selectedVariantTitle}
-          </div>
-        ) : null}
-
-        <div style={styles.divider} />
 
         <input
           ref={fileInputRef}
@@ -3018,54 +2985,63 @@ export default function StickerCanvasClient({
           type="button"
           style={{
             ...styles.secondaryBtn,
+            marginTop: 0,
             borderStyle: "dashed",
-            borderColor: imageUrl ? "rgba(255,255,255,0.13)" : "rgba(242,100,25,0.4)",
-            color: imageUrl ? "rgba(255,255,255,0.85)" : SA_ORANGE,
+            borderColor: imageUrl ? "rgba(255,255,255,0.13)" : "rgba(242,100,25,0.45)",
+            color: imageUrl ? "rgba(255,255,255,0.8)" : SA_ORANGE,
           }}
           onClick={() => fileInputRef.current?.click()}
         >
-          {uploading ? "⏳ Wird hochgeladen…" : imageUrl ? "📎 Bild ändern" : "📎 Bild hochladen"}
+          {uploading ? "Wird hochgeladen…" : imageUrl ? "Bild ändern" : "Bild auswählen"}
         </button>
 
-        <label
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            fontSize: 12,
-            opacity: 0.9,
-            marginTop: 10,
-          }}
-        >
-          <input type="checkbox" checked={goToCartAfterAdd} onChange={(e) => setGoToCartAfterAdd(!!e.target.checked)} />
-          Nach dem Hinzufügen zum Warenkorb wechseln
-        </label>
+        {/* ── Preis & Warenkorb ────────────────────────────────────────── */}
+        <div style={styles.divider} />
 
-        {addedMsg ? (
-          <div
-            style={{
-              marginTop: 10,
-              padding: "9px 12px",
-              borderRadius: 8,
-              background: "rgba(34,197,94,0.10)",
-              border: "1px solid rgba(34,197,94,0.28)",
-              color: "#86efac",
-              fontSize: 12,
-              fontFamily: styles.wrapper.fontFamily,
-              lineHeight: 1.4,
-            }}
-          >
-            ✓ {addedMsg}
+        <div style={styles.priceCard}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: SA_FONT }}>Sticker pro Set</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: SA_FONT }}>{realPieces}</span>
           </div>
-        ) : null}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: SA_FONT }}>Gesamtpreis</span>
+            <span style={{ fontSize: 22, fontWeight: 900, color: SA_ORANGE, fontFamily: SA_FONT, letterSpacing: "-0.02em" }}>
+              {priceTotal.toFixed(2)} €
+            </span>
+          </div>
+          {selectedVariantTitle ? (
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 5, fontFamily: SA_FONT }}>
+              {selectedVariantTitle}
+            </div>
+          ) : null}
+        </div>
 
         <button type="button" style={styles.primaryBtn} onClick={addToCart} disabled={!imageUrl}>
           In den Warenkorb
         </button>
 
+        {addedMsg ? (
+          <div style={{
+            marginTop: 8, padding: "8px 12px", borderRadius: 8,
+            background: "rgba(34,197,94,0.10)", border: "1px solid rgba(34,197,94,0.25)",
+            color: "#86efac", fontSize: 11, fontFamily: SA_FONT, lineHeight: 1.4,
+          }}>
+            ✓ {addedMsg}
+          </div>
+        ) : null}
+
         <button type="button" style={styles.secondaryBtn} onClick={exportSvg} disabled={!imageUrl || exporting}>
-          {exporting ? "Export…" : "SVG & PDF exportieren"}
+          {exporting ? "Exportiert…" : "SVG & PDF exportieren"}
         </button>
+
+        <label style={{
+          display: "flex", gap: 8, alignItems: "center",
+          fontSize: 11, color: "rgba(255,255,255,0.45)",
+          marginTop: 10, cursor: "pointer", fontFamily: SA_FONT,
+        }}>
+          <input type="checkbox" checked={goToCartAfterAdd} onChange={(e) => setGoToCartAfterAdd(!!e.target.checked)} />
+          Nach dem Hinzufügen zum Warenkorb wechseln
+        </label>
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
       </div>
@@ -3327,5 +3303,83 @@ const styles = {
     maxWidth: 340,
     lineHeight: 1.6,
     fontFamily: SA_FONT,
+  },
+  // ── Panel Header (Titel oben links) ──────────────────────────────────────
+  panelHeader: {
+    fontSize: 15,
+    fontWeight: 900,
+    color: "#fff",
+    letterSpacing: "-0.01em",
+    marginBottom: 16,
+    paddingBottom: 14,
+    borderBottom: `1px solid ${SA_BORDER}`,
+    fontFamily: SA_FONT,
+    lineHeight: 1.2,
+  },
+  // ── Step Header (nummerierte Abschnitte) ──────────────────────────────────
+  stepHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 18,
+    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.75)",
+    letterSpacing: "0.01em",
+    fontFamily: SA_FONT,
+    textTransform: "uppercase",
+  },
+  stepNum: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    borderRadius: "50%",
+    background: SA_ORANGE,
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: 900,
+    flexShrink: 0,
+    fontFamily: SA_FONT,
+  },
+  // ── Shape Tile Grid ───────────────────────────────────────────────────────
+  shapesGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 5,
+  },
+  shapeTile: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    padding: "8px 4px",
+    borderRadius: 8,
+    border: "1.5px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
+    cursor: "pointer",
+    minHeight: 56,
+    transition: "border-color 0.12s, background 0.12s",
+    fontFamily: SA_FONT,
+  },
+  shapeTileLabel: {
+    fontSize: 9,
+    fontWeight: 600,
+    letterSpacing: "0.03em",
+    lineHeight: 1.2,
+    textAlign: "center",
+    color: "inherit",
+    fontFamily: SA_FONT,
+  },
+  // ── Preis-Card ────────────────────────────────────────────────────────────
+  priceCard: {
+    background: "rgba(255,255,255,0.04)",
+    border: `1px solid ${SA_BORDER}`,
+    borderRadius: 10,
+    padding: "12px 14px",
+    marginTop: 14,
   },
 };
