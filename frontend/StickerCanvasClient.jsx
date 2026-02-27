@@ -2905,7 +2905,7 @@ export default function StickerCanvasClient({
         ) : null}
 
         {/* ── Schritt 4: Motiv ─────────────────────────────────────── */}
-        {/*<div className="scStepHeader">
+        <div className="scStepHeader">
           <span className="scStepNum">4</span>
           Motiv hochladen
         </div>
@@ -2926,7 +2926,7 @@ export default function StickerCanvasClient({
         >
           {uploading ? "Wird hochgeladen…" : imageUrl ? "Bild ändern" : "Bild auswählen"}
         </button>
-          */}
+          
         {/* ── Preis & CTA ──────────────────────────────────────────── */}
         <div className="scDivider" />
 
