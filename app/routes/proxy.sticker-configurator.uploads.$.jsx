@@ -78,6 +78,7 @@ export async function loader({ request, params }) {
         "Content-Length": String(buf.length),
         ETag: etag,
         "Cache-Control": "public, max-age=3600",
+        "Access-Control-Allow-Origin": "*",
       },
     });
   } catch {

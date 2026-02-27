@@ -1,4 +1,3 @@
-import { createReadStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
 
@@ -57,9 +56,11 @@ export async function loader({ params, request }) {
         ? "public, max-age=31536000, immutable"
         : "private, max-age=60"
     );
+    // CORS: nötig wenn Canvas-Code das Bild cross-origin lädt (z.B. in Admin-Kontext)
+    headers.set("Access-Control-Allow-Origin", "*");
 
-    // Optional: Range etc. lassen wir weg, für PNG/JPG reicht Stream
-    return new Response(createReadStream(abs), { status: 200, headers });
+    const buf = await fs.readFile(abs);
+    return new Response(buf, { status: 200, headers });
   } catch (e) {
     if (e && (e.code === "ENOENT" || e.code === "ENOTDIR")) {
       return new Response("Not found", { status: 404 });

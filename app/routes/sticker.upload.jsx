@@ -1,5 +1,4 @@
 // app/routes/sticker.upload.jsx
 // Wrapper route so the storefront can POST to /sticker/upload
-// It reuses the existing implementation at /apps/sticker-configurator/sticker/upload
-
-export { loader, action } from "./apps.sticker-configurator.sticker.upload.jsx";
+// handle re-exportieren damit shopify-app-remix die Route als App-Proxy erkennt
+export { loader, action, handle } from "./apps.sticker-configurator.sticker.upload.jsx";
