@@ -5,6 +5,9 @@ import path from "path";
 import { authenticate } from "../shopify.server";
 import { uploadBufferAsShopifyFile } from "../lib/shopifyFiles.server";
 
+// Pflicht für App-Proxy POST-Requests: verhindert CSRF-Ablehnung durch shopify-app-remix
+export const handle = { isAppProxy: true };
+
 // ==============================
 // Performance-Schalter
 // ==============================

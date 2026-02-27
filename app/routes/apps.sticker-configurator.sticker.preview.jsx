@@ -5,6 +5,9 @@ import fs from "fs/promises";
 import path from "path";
 import { authenticate } from "../shopify.server";
 
+// Pflicht für App-Proxy POST-Requests: verhindert CSRF-Ablehnung durch shopify-app-remix
+export const handle = { isAppProxy: true };
+
 const PX_PER_CM = 100;
 const FREEFORM_MASTER_LONG_SIDE = 1200;
 const DEFAULT_MAX_PX = 1200;

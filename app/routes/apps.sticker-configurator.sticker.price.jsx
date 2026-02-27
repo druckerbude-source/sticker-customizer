@@ -1,6 +1,9 @@
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 
+// Pflicht für App-Proxy POST-Requests: verhindert CSRF-Ablehnung durch shopify-app-remix
+export const handle = { isAppProxy: true };
+
 const MIN_M2 = 0.1;
 const PRICE_PER_M2 = 250;
 
