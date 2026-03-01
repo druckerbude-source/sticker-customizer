@@ -963,9 +963,10 @@ function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderP
 }
 
 // High-quality freeform export using vector Path2D clip for crisp edges at any DPI.
-// Instead of upscaling a 520px binary mask (blurry), we use the same vector path
-// as the SVG cutline → pixel-sharp motif boundary at export resolution.
-function renderFreeformWithPath2DClip({ master, outWpx, outHpx, bgColor, borderPx }) {
+// imgEl = original <img> element at native resolution (same source as all other shapes).
+// The mask (520px) is only used for contour tracing – image content is drawn directly
+// from imgEl at full export resolution, identical to drawContainInRect for other shapes.
+function renderFreeformWithPath2DClip({ master, imgEl, outWpx, outHpx, bgColor, borderPx }) {
   const outW = Math.max(1, Math.round(outWpx));
   const outH = Math.max(1, Math.round(outHpx));
 
@@ -1009,10 +1010,28 @@ function renderFreeformWithPath2DClip({ master, outWpx, outHpx, bgColor, borderP
     ctx.fillRect(0, 0, cropW, cropH);
   }
 
-  // Draw full-resolution image – master.src holds the image at masterW × masterH
+  // Draw imgEl (original high-res image) at the exact position it occupies in master space,
+  // converted to export-canvas coordinates. This mirrors drawContainInRect for other shapes:
+  // imgEl is drawn at full native resolution → no upscaling artefacts, maximum sharpness.
+  const iw = imgEl.naturalWidth || imgEl.width || 1;
+  const ih = imgEl.naturalHeight || imgEl.height || 1;
+  // Replicate the contain-fit scaling from buildFreeformMasterMask
+  const scaleFit = Math.min(master.innerW / iw, master.innerH / ih);
+  const dw_m = iw * scaleFit;  // image width in master-space pixels
+  const dh_m = ih * scaleFit;  // image height in master-space pixels
+  const dx_m = master.padPx + (master.innerW - dw_m) / 2;  // x in master space
+  const dy_m = master.padPx + (master.innerH - dh_m) / 2;  // y in master space
+  // Scale master-space → full outW×outH → then shift to crop canvas via offX/offY
+  const scMx = outW / master.masterW;
+  const scMy = outH / master.masterH;
+  const img_x = dx_m * scMx + offX;
+  const img_y = dy_m * scMy + offY;
+  const img_w = dw_m * scMx;
+  const img_h = dh_m * scMy;
+
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(master.src, 0, 0, master.masterW, master.masterH, offX, offY, outW, outH);
+  ctx.drawImage(imgEl, 0, 0, iw, ih, img_x, img_y, img_w, img_h);
 
   ctx.restore();
   return canvas;
@@ -2516,9 +2535,10 @@ export default function StickerCanvasClient({
 
       const borderPx = mmToPxAtDpi(freeformBorderMm, EXPORT_DPI);
 
-      // Use Path2D clip for crisp vector edges at export DPI (no blurry mask upscale)
+      // Use Path2D clip + imgEl for crisp edges and full-res image (like all other shapes)
       const ffCanvas = renderFreeformWithPath2DClip({
         master,
+        imgEl: img,
         outWpx: cmToPxAtDpi(widthCm, EXPORT_DPI),
         outHpx: cmToPxAtDpi(heightCm, EXPORT_DPI),
         bgColor: hasBgFill ? bgColorEff : null,
