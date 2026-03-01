@@ -962,6 +962,62 @@ function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderP
   return canvas;
 }
 
+// High-quality freeform export using vector Path2D clip for crisp edges at any DPI.
+// Instead of upscaling a 520px binary mask (blurry), we use the same vector path
+// as the SVG cutline → pixel-sharp motif boundary at export resolution.
+function renderFreeformWithPath2DClip({ master, outWpx, outHpx, bgColor, borderPx }) {
+  const outW = Math.max(1, Math.round(outWpx));
+  const outH = Math.max(1, Math.round(outHpx));
+
+  // Compute backing mask for bbox – same logic as renderFreeformFromMasterMask
+  const pxPerMask = outW / Math.max(1, master.mw);
+  const borderInMaskPx = Math.max(1, Math.round((borderPx || 0) / Math.max(1e-9, pxPerMask)));
+  const backingMask = dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMaskPx);
+
+  const bb = maskBBox(backingMask, master.mw, master.mh);
+  const M = 3;
+  const minX = Math.max(0, bb.minX - M);
+  const minY = Math.max(0, bb.minY - M);
+  const maxX = Math.min(master.mw - 1, bb.maxX + M);
+  const maxY = Math.min(master.mh - 1, bb.maxY + M);
+
+  const sx = outW / Math.max(1, master.mw);
+  const sy = outH / Math.max(1, master.mh);
+  const cropW = Math.max(1, Math.round((maxX - minX + 1) * sx));
+  const cropH = Math.max(1, Math.round((maxY - minY + 1) * sy));
+  const offX = -minX * sx;
+  const offY = -minY * sy;
+
+  // Vector path in crop-canvas coordinate space (identical to SVG cutline path)
+  const pathD = buildFreeformCutlinePathFromMaster(master, cropW, cropH, borderPx, outW);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = cropW;
+  canvas.height = cropH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
+
+  ctx.clearRect(0, 0, cropW, cropH);
+  ctx.save();
+
+  if (pathD) {
+    ctx.clip(new Path2D(pathD));
+  }
+
+  if (bgColor && String(bgColor).toLowerCase() !== "transparent") {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, cropW, cropH);
+  }
+
+  // Draw full-resolution image – master.src holds the image at masterW × masterH
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(master.src, 0, 0, master.masterW, master.masterH, offX, offY, outW, outH);
+
+  ctx.restore();
+  return canvas;
+}
+
 function composeStickerIntoBillingBox({ stickerCanvas, boxWpx, boxHpx }) {
   const bw = Math.max(1, Math.round(boxWpx));
   const bh = Math.max(1, Math.round(boxHpx));
@@ -2460,11 +2516,12 @@ export default function StickerCanvasClient({
 
       const borderPx = mmToPxAtDpi(freeformBorderMm, EXPORT_DPI);
 
-      const ffCanvas = renderFreeformFromMasterMask({
+      // Use Path2D clip for crisp vector edges at export DPI (no blurry mask upscale)
+      const ffCanvas = renderFreeformWithPath2DClip({
         master,
         outWpx: cmToPxAtDpi(widthCm, EXPORT_DPI),
         outHpx: cmToPxAtDpi(heightCm, EXPORT_DPI),
-        bgColor: hasBgFill ? bgColorEff : "transparent",
+        bgColor: hasBgFill ? bgColorEff : null,
         borderPx,
       });
 
