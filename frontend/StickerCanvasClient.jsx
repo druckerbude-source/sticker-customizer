@@ -33,7 +33,6 @@ const PX_PER_CM = 100;
 const EXPORT_DPI = 300;
 const MIN_DPI = 180;
 
-const SQRT2 = Math.SQRT2;
 const FREEFORM_MASTER_LONG_SIDE = 1200;
 const FREEFORM_PREVIEW_MAX_SIDE = 1100;
 
@@ -2383,26 +2382,12 @@ export default function StickerCanvasClient({
     const pad = isRounded ? mmToPxAtDpi(ROUNDED_RADIUS_MM, EXPORT_DPI) : 0;
     const needsBgFill = (isRound || isOval || isSquare || isRounded) && hasBgFill;
 
-    const exportSizePx = isRound ? Math.max(1, Math.round(diagonalFromRect(baseWidthPx, baseHeightPx))) : null;
-    const exportOvalW = isOval ? Math.max(1, Math.round(baseWidthPx * SQRT2)) : null;
-    const exportOvalH = isOval ? Math.max(1, Math.round(baseHeightPx * SQRT2)) : null;
-
+    // Round/Oval: Canvas = exakte Sticker-Maße (bw×bh), kein Diagonal/√2-Padding.
+    // Der Clip wird direkt auf den Canvas angewendet → PNG hat transparente Ecken,
+    // und das Export-SVG sieht genauso aus wie die Konfigurator-Vorschau.
     const canvas = document.createElement("canvas");
-    canvas.width = isRound
-      ? exportSizePx
-      : isOval
-      ? exportOvalW
-      : isRounded
-      ? Math.max(1, baseWidthPx + pad * 2)
-      : baseWidthPx;
-
-    canvas.height = isRound
-      ? exportSizePx
-      : isOval
-      ? exportOvalH
-      : isRounded
-      ? Math.max(1, baseHeightPx + pad * 2)
-      : baseHeightPx;
+    canvas.width = isRounded ? Math.max(1, baseWidthPx + pad * 2) : Math.max(1, baseWidthPx);
+    canvas.height = isRounded ? Math.max(1, baseHeightPx + pad * 2) : Math.max(1, baseHeightPx);
 
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
