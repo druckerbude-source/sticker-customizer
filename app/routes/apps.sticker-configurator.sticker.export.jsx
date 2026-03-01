@@ -351,12 +351,32 @@ export async function action({ request }) {
         // Cutline via Filter (Fallback)
         cutPath = `<image href="${freeformMask}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="none" filter="url(#${cutFilterId})" />`;
       } else {
-        bgRect = hasBgFill && shapeKey !== "freeform" ? `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="${fill}" />` : "";
-        // Bei Canvas-Mode ist renderedDataUrl "die Wahrheit" (keine CDN-Abhängigkeit)
-        imageTag = `<image href="${renderedDataUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="none" />`;
+        if (shapeKey === "round" || shapeKey === "oval") {
+          // Round/Oval: Canvas-PNG ist größer als der eigentliche Sticker (Diagonale/√2-Trick für Rotation).
+          // → ClipPath begrenzt bgRect und imageTag auf die Kreis-/Ellipsenform,
+          //   damit die SVG-Datei optisch mit der Konfigurator-Vorschau übereinstimmt.
+          const rw2 = clampInt(rectWidthPx ?? exportW, 1, 20000);
+          const rh2 = clampInt(rectHeightPx ?? exportH, 1, 20000);
+          const cx2 = exportW / 2;
+          const cy2 = exportH / 2;
+          const clipId = "shapeClip_" + ts.toString(36);
+          const clipEl =
+            shapeKey === "round"
+              ? `<circle cx="${cx2}" cy="${cy2}" r="${(Math.min(rw2, rh2) / 2).toFixed(2)}" />`
+              : `<ellipse cx="${cx2}" cy="${cy2}" rx="${(rw2 / 2).toFixed(2)}" ry="${(rh2 / 2).toFixed(2)}" />`;
+          defsExtra = `<defs><clipPath id="${clipId}">${clipEl}</clipPath></defs>`;
+          bgRect = hasBgFill
+            ? `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="${fill}" clip-path="url(#${clipId})" />`
+            : "";
+          imageTag = `<image href="${renderedDataUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="none" clip-path="url(#${clipId})" />`;
+        } else {
+          bgRect = hasBgFill && shapeKey !== "freeform" ? `<rect x="0" y="0" width="${exportW}" height="${exportH}" fill="${fill}" />` : "";
+          // Bei Canvas-Mode ist renderedDataUrl "die Wahrheit" (keine CDN-Abhängigkeit)
+          imageTag = `<image href="${renderedDataUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="none" />`;
 
-        // Falls man lieber den Shopify-PNG-Link im SVG will:
-        // imageTag = `<image href="${pngUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="${preserve}" />`;
+          // Falls man lieber den Shopify-PNG-Link im SVG will:
+          // imageTag = `<image href="${pngUrl}" x="0" y="0" width="${exportW}" height="${exportH}" preserveAspectRatio="${preserve}" />`;
+        }
       }
 
       const svgContent = `<?xml version="1.0" encoding="UTF-8"?>
