@@ -2426,9 +2426,15 @@ export default function StickerCanvasClient({
         ctx.fillStyle = bgColorEff || "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
-      const rectX = (canvas.width - baseWidthPx) / 2;
-      const rectY = (canvas.height - baseHeightPx) / 2;
-      drawContainInRect(ctx, rectX, rectY, baseWidthPx, baseHeightPx);
+      // Bild auf bw/√2 × bh/√2 skalieren – größtes einbeschriebenes Rechteck der Ellipse/des Kreises.
+      // Entspricht der Konfigurator-Vorschau (.scImgOvalBox { width:70.71%; height:70.71% }).
+      // Bildecken liegen exakt auf der Ellipse → kein Motivbeschnitt.
+      const INSET = 1 / Math.SQRT2; // 0.7071
+      const imgW = baseWidthPx * INSET;
+      const imgH = baseHeightPx * INSET;
+      const imgX = (canvas.width - imgW) / 2;
+      const imgY = (canvas.height - imgH) / 2;
+      drawContainInRect(ctx, imgX, imgY, imgW, imgH);
       ctx.restore();
     } else {
       if (needsBgFill) {
