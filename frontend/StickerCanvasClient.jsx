@@ -2425,15 +2425,35 @@ export default function StickerCanvasClient({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (needsBgFill) {
-      ctx.fillStyle = bgColorEff || "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
     if (isRound || isOval) {
+      // Clip context to circle/oval before drawing — PNG gets transparent corners.
+      // Avoids needing SVG clipPath (Shopify CDN strips <clipPath> from uploaded SVGs).
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const r = Math.min(baseWidthPx, baseHeightPx) / 2;
+      const rx = isRound ? r : baseWidthPx / 2;
+      const ry = isRound ? r : baseHeightPx / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+      ctx.clip();
+      if (needsBgFill) {
+        ctx.fillStyle = bgColorEff || "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
       const rectX = (canvas.width - baseWidthPx) / 2;
       const rectY = (canvas.height - baseHeightPx) / 2;
       drawContainInRect(ctx, rectX, rectY, baseWidthPx, baseHeightPx);
+      ctx.restore();
+    } else {
+      if (needsBgFill) {
+        ctx.fillStyle = bgColorEff || "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    if (isRound || isOval) {
+      // (already handled above with canvas clip)
     } else if (isRounded) {
       drawContainInRect(ctx, pad, pad, baseWidthPx, baseHeightPx);
     } else if (shape === "freeform") {
