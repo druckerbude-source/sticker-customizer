@@ -30,7 +30,7 @@ const FREEFORM_LONGSIDE_PRESETS_CM = [4, 5, 6, 7, 8, 9, 10, 12, 15, 20];
 
 // Freeform Preview-Engine
 const PX_PER_CM = 100;
-const EXPORT_DPI = 300;
+const EXPORT_DPI = 450;
 const MIN_DPI = 180;
 
 const FREEFORM_MASTER_LONG_SIDE = 1200;
@@ -2354,7 +2354,9 @@ export default function StickerCanvasClient({
   // ✅ Cutline-Pfad für Export erzeugen (wird an Server geschickt)
   // baseWidthPx / baseHeightPx = tatsächliche Sticker-Größe in Pixeln (ohne Canvas-Padding).
   // canvasW / canvasH = Export-Canvas-Größe (kann größer sein, z.B. Diagonale bei round).
-  function buildCutlinePathDForExport({ shape, canvasW, canvasH, baseWidthPx, baseHeightPx, freeformMaster, img, imgAspect }) {
+  // freeformRenderWidthPx = outWpx das an renderFreeformWithPath2DClip übergeben wurde (Design-Dims),
+  //   NICHT baseWidthPx (Billing-Dims) – sonst stimmt borderInMask nicht überein.
+  function buildCutlinePathDForExport({ shape, canvasW, canvasH, baseWidthPx, baseHeightPx, freeformMaster, img, imgAspect, freeformRenderWidthPx }) {
     const w = Math.max(1, Math.round(canvasW));
     const h = Math.max(1, Math.round(canvasH));
     // tatsächliche Sticker-Maße (ohne Canvas-Padding) – relevant für round/oval
@@ -2363,7 +2365,9 @@ export default function StickerCanvasClient({
     const cx = w / 2;
     const cy = h / 2;
 
-    if (bgMode !== "white" && bgMode !== "color") return "";
+    // Freeform braucht immer eine Cutline (auch bei transparentem Hintergrund),
+    // weil Plotter den Schnitt-Pfad unabhängig vom Hintergrund benötigen.
+    if (bgMode !== "white" && bgMode !== "color" && shape !== "freeform") return "";
 
     if (shape === "round") {
       // Kreis zentriert im Canvas, Radius = halbe Sticker-Dimension (nicht halbe Canvas-Diagonale!)
@@ -2407,13 +2411,14 @@ export default function StickerCanvasClient({
           imgEl: img,
           imgAspect: imgAspect || 1,
           getMasterRectFromAspect,
-          maxMaskDim: 520,
+          maxMaskDim: 780,
           padPx: 120,
         });
 
-      // bw = baseWidthPx = renderOutW: die Ausgangsgröße vor dem Bbox-Crop,
-      // identisch mit outWpx in renderFreeformFromMasterMask → korrekter borderInMask
-      return buildFreeformCutlinePathFromMaster(master, w, h, borderPxOut, bw);
+      // renderOutW muss identisch mit outWpx in renderFreeformWithPath2DClip sein (Design-Dims),
+      // damit borderInMask korrekt berechnet wird. baseWidthPx (Billing) würde abweichen.
+      const renderW = freeformRenderWidthPx || bw;
+      return buildFreeformCutlinePathFromMaster(master, w, h, borderPxOut, renderW);
     }
 
     return "";
@@ -2529,7 +2534,7 @@ export default function StickerCanvasClient({
           imgEl: img,
           imgAspect: imgAspect || 1,
           getMasterRectFromAspect,
-          maxMaskDim: 520,
+          maxMaskDim: 780,
           padPx: 120,
         });
 
@@ -2557,8 +2562,8 @@ export default function StickerCanvasClient({
 
     const renderedDataUrl = canvas.toDataURL("image/png");
 
-    // ✅ NEU: Cutline-Pfad für Server
-    const exportCutlineEnabled = bgMode === "white" || bgMode === "color";
+    // Freeform braucht immer Cutline (auch transparent), alle anderen Formen nur bei gefülltem Hintergrund.
+    const exportCutlineEnabled = bgMode === "white" || bgMode === "color" || shape === "freeform";
     const cutlinePathD = exportCutlineEnabled
       ? buildCutlinePathDForExport({
           shape,
@@ -2569,6 +2574,8 @@ export default function StickerCanvasClient({
           freeformMaster,
           img,
           imgAspect,
+          // Design-Dims als renderOutW – identisch mit outWpx in renderFreeformWithPath2DClip
+          freeformRenderWidthPx: cmToPxAtDpi(widthCm, EXPORT_DPI),
         })
       : "";
 
