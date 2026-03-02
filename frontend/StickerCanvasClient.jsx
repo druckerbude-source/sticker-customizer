@@ -3507,18 +3507,29 @@ const SC_CSS = `
 }
 
 .scBtnUpload{
-  background: rgba(255,255,255,0.03);
-  border: 1.5px dashed rgba(225,6,0,0.45);
-  color: var(--accent);
-  font-weight: 600;
+  background: #e10600;
+  border: none;
+  color: #fff;
+  font-weight: 800;
+  border-radius: 999px;
+  box-shadow: 0 4px 18px rgba(225,6,0,0.30);
+  letter-spacing: 0.01em;
+}
+.scBtnUpload:hover{ filter: brightness(0.92); }
+.scBtnUpload:focus-visible{
+  outline: 2px solid rgba(225,6,0,0.40);
+  outline-offset: 3px;
 }
 
 .scBtnHero{
   background: var(--accent);
   color: #fff;
   max-width: 520px;
+  border-radius: 999px;
   box-shadow: 0 4px 20px rgba(225,6,0,0.30);
+  font-weight: 800;
 }
+.scBtnHero:hover{ filter: brightness(0.92); }
 
 .scCheck{
   display:flex;
