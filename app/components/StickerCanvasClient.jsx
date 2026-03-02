@@ -57,7 +57,8 @@ const WARN_DPI = 240;
 const MIN_DPI = 180;
 
 const SQRT2 = Math.SQRT2;
-const FREEFORM_MASTER_LONG_SIDE = 1200;
+// ✅ Erhöht für deutlich schärfere Freiform-Konturen (war 1200)
+const FREEFORM_MASTER_LONG_SIDE = 2400;
 const FREEFORM_PREVIEW_MAX_SIDE = 1100;
 
 // ✅ schließt kleine "Freiräume" / Schlitze zwischen Konturen (Mask Closing)
@@ -1000,6 +1001,9 @@ function maskAspectFromBBox(mask, w, h) {
   return Math.min(10, Math.max(0.1, ar));
 }
 
+// ✅ FIX: Kein Crop – Canvas hat immer exakt outWpx × outHpx.
+// Der Crop-Trick (BBox beschneiden) führte zu Skalierungs-Inkonsistenzen
+// zwischen Preview und Export, weil outWpx unterschiedlich war.
 function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderPx, forExport = false }) {
   const outW = Math.max(1, Math.round(outWpx));
   const outH = Math.max(1, Math.round(outHpx));
@@ -1021,95 +1025,62 @@ function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderP
     }
   }
 
-  const backingMask = cached.backingMask;
-  const backingC = cached.backingC;
+  const { backingMask, backingC } = cached;
 
-  const bb = maskBBox(backingMask, master.mw, master.mh);
-
-  const M = 3;
-  const minX = Math.max(0, bb.minX - M);
-  const minY = Math.max(0, bb.minY - M);
-  const maxX = Math.min(master.mw - 1, bb.maxX + M);
-  const maxY = Math.min(master.mh - 1, bb.maxY + M);
-
-  const sx = outW / Math.max(1, master.mw);
-  const sy = outH / Math.max(1, master.mh);
-
-  const cropW = Math.max(1, Math.round((maxX - minX + 1) * sx));
-  const cropH = Math.max(1, Math.round((maxY - minY + 1) * sy));
-
+  // ✅ Volles Canvas (kein Crop auf BBox)
   const canvas = document.createElement("canvas");
-  canvas.width = cropW;
-  canvas.height = cropH;
+  canvas.width = outW;
+  canvas.height = outH;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
 
-  const offX = -minX * sx;
-  const offY = -minY * sy;
-
-  ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
   const isTransparentBg = !bgColor || String(bgColor).toLowerCase() === "transparent";
 
-  // ✅ Hintergrund-Füllung nur für nicht-transparente Varianten
-  // (sonst würden die RGB-Werte der Alpha-Maske als "schwarz" sichtbar bleiben)
   if (!isTransparentBg) {
+    // Hintergrund-Füllung innerhalb der Backing-Maske
     ctx.globalCompositeOperation = "source-over";
-    ctx.drawImage(backingC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-
+    ctx.drawImage(backingC, 0, 0, master.mw, master.mh, 0, 0, outW, outH);
     ctx.globalCompositeOperation = "source-in";
     ctx.fillStyle = bgColor || "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, outW, outH);
   } else if (!forExport) {
-    // ✅ Preview-Hilfe für transparente Freiform:
-    // zeige den Rand/Stickerfilm dezent, ohne den Export zu verfälschen
-
-    // (1) "Film" über die gesamte Stickerfläche sehr subtil
+    // Preview-Hilfe für transparente Freiform: subtiler Film + Rand
     ctx.globalCompositeOperation = "source-over";
-    ctx.drawImage(backingC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-
+    ctx.drawImage(backingC, 0, 0, master.mw, master.mh, 0, 0, outW, outH);
     ctx.globalCompositeOperation = "source-in";
     ctx.fillStyle = "rgba(255,255,255,0.06)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, outW, outH);
 
-    // (2) 1px Cut-Outline (Ring am äußeren Rand)
     try {
       const innerMask = dilateMaskExact(master.insideMask, master.mw, master.mh, Math.max(0, borderInMaskPx - 1));
       const ringMask = new Uint8Array(master.mw * master.mh);
       for (let i = 0; i < ringMask.length; i++) ringMask[i] = backingMask[i] && !innerMask[i] ? 1 : 0;
       const ringC = maskToAlphaCanvas(ringMask, master.mw, master.mh);
-
       ctx.globalCompositeOperation = "source-over";
-      ctx.drawImage(ringC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
+      ctx.drawImage(ringC, 0, 0, master.mw, master.mh, 0, 0, outW, outH);
       ctx.globalCompositeOperation = "source-in";
       ctx.fillStyle = "rgba(255,255,255,0.35)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    } catch (e) {
-      // ignore
-    }
+      ctx.fillRect(0, 0, outW, outH);
+    } catch {}
   }
 
-  ctx.restore();
-
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
+  // Bild über die Maske legen
   ctx.globalCompositeOperation = "source-over";
-  ctx.drawImage(master.src, 0, 0, master.masterW, master.masterH, offX, offY, outW, outH);
-  ctx.restore();
+  ctx.drawImage(master.src, 0, 0, master.masterW, master.masterH, 0, 0, outW, outH);
 
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
+  // Alpha-Clip: alles außerhalb der Backing-Maske ausschneiden
   ctx.globalCompositeOperation = "destination-in";
-  ctx.drawImage(backingC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-  ctx.restore();
+  ctx.drawImage(backingC, 0, 0, master.mw, master.mh, 0, 0, outW, outH);
+
+  ctx.globalCompositeOperation = "source-over"; // reset
 
   return canvas;
 }
 
-// Export: Maske der Freiform inkl. Rand als DataURL erzeugen (für Cutline im SVG)
+// ✅ FIX: Kein Crop – immer outWpx × outHpx (konsistent mit renderFreeformFromMasterMask).
 // Liefert eine weiße Maske (RGB=weiß) mit Alpha aus der Rand-Maske.
 function renderFreeformMaskDataUrlFromMasterMask({ master, outWpx, outHpx, borderPx }) {
   const outW = Math.max(1, Math.round(outWpx));
@@ -1130,49 +1101,29 @@ function renderFreeformMaskDataUrlFromMasterMask({ master, outWpx, outHpx, borde
     }
   }
 
-  const { backingMask, backingC } = cached;
-  const bb = maskBBox(backingMask, master.mw, master.mh);
+  const { backingC } = cached;
 
-  const M = 3;
-  const minX = Math.max(0, bb.minX - M);
-  const minY = Math.max(0, bb.minY - M);
-  const maxX = Math.min(master.mw - 1, bb.maxX + M);
-  const maxY = Math.min(master.mh - 1, bb.maxY + M);
-
-  const sx = outW / Math.max(1, master.mw);
-  const sy = outH / Math.max(1, master.mh);
-
-  const cropW = Math.max(1, Math.round((maxX - minX + 1) * sx));
-  const cropH = Math.max(1, Math.round((maxY - minY + 1) * sy));
-
+  // ✅ Volles Canvas (kein Crop auf BBox) – exakt outW × outH
   const canvas = document.createElement("canvas");
-  canvas.width = cropW;
-  canvas.height = cropH;
+  canvas.width = outW;
+  canvas.height = outH;
   const ctx = canvas.getContext("2d");
   if (!ctx) return "";
 
-  const offX = -minX * sx;
-  const offY = -minY * sy;
-
-  ctx.clearRect(0, 0, cropW, cropH);
+  ctx.clearRect(0, 0, outW, outH);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.globalCompositeOperation = "source-over";
-  ctx.drawImage(backingC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
+  ctx.drawImage(backingC, 0, 0, master.mw, master.mh, 0, 0, outW, outH);
 
   // In "weiße Maske" umwandeln: RGB=255, Alpha bleibt erhalten
-  const img = ctx.getImageData(0, 0, cropW, cropH);
+  const img = ctx.getImageData(0, 0, outW, outH);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const a = d[i + 3];
-    if (a > 0) {
-      d[i] = 255;
-      d[i + 1] = 255;
-      d[i + 2] = 255;
+    if (d[i + 3] > 0) {
+      d[i] = 255; d[i + 1] = 255; d[i + 2] = 255;
     } else {
-      d[i] = 0;
-      d[i + 1] = 0;
-      d[i + 2] = 0;
+      d[i] = 0; d[i + 1] = 0; d[i + 2] = 0;
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -1180,6 +1131,169 @@ function renderFreeformMaskDataUrlFromMasterMask({ master, outWpx, outHpx, borde
   return canvas.toDataURL("image/png");
 }
 
+// ==============================
+// ✅ Freeform Vektor-Cutline (Single Source of Truth)
+// Erzeugt einen geschlossenen SVG-Pfad aus der Binärmaske.
+// Wird für Preview-Overlay, SVG-Export UND Cutline identisch verwendet.
+// ==============================
+
+/**
+ * Douglas-Peucker Pfad-Vereinfachung
+ * @param {Array} pts - [[x,y], ...] Punkte
+ * @param {number} tolerance - Toleranz in Ausgabe-Pixeln
+ * @returns {Array} vereinfachte Punkte (inkl. Anfangs- und Endpunkt)
+ */
+function dpSimplifyPath(pts, tolerance) {
+  if (!pts || pts.length <= 2) return pts || [];
+  const sqTol = tolerance * tolerance;
+
+  function sqSegDist(p, p1, p2) {
+    let x = p1[0], y = p1[1];
+    const dx = p2[0] - x, dy = p2[1] - y;
+    if (dx !== 0 || dy !== 0) {
+      const t = ((p[0] - x) * dx + (p[1] - y) * dy) / (dx * dx + dy * dy);
+      if (t > 1) { x = p2[0]; y = p2[1]; }
+      else if (t > 0) { x += dx * t; y += dy * t; }
+    }
+    const ex = p[0] - x, ey = p[1] - y;
+    return ex * ex + ey * ey;
+  }
+
+  function recurse(first, last, result) {
+    let maxD = sqTol, idx = -1;
+    for (let i = first + 1; i < last; i++) {
+      const d = sqSegDist(pts[i], pts[first], pts[last]);
+      if (d > maxD) { maxD = d; idx = i; }
+    }
+    if (idx !== -1) {
+      if (idx - first > 1) recurse(first, idx, result);
+      result.push(pts[idx]);
+      if (last - idx > 1) recurse(idx, last, result);
+    }
+  }
+
+  const out = [pts[0]];
+  recurse(0, pts.length - 1, out);
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
+/**
+ * Extrahiert die Außenkontur einer Binärmaske als geschlossenen SVG-Pfad.
+ *
+ * Algorithmus: Scanline-Profile (Ober-/Unter-/Links-/Rechtskante) → DP-Vereinfachung.
+ * Für typische Sticker-Motive (organisch, nicht extrem konkav) ist diese Methode
+ * ausreichend genau und performant.
+ *
+ * Koordinaten werden direkt in den Ausgabe-Raum (outW × outH px) skaliert.
+ * Mit optionalem Offset kann die Linie nach außen verschoben werden (Cutline-Rand).
+ *
+ * @param {Uint8Array} mask      Binärmaske (1=Vordergrund)
+ * @param {number}     mw        Maskenbreite
+ * @param {number}     mh        Maskenhöhe
+ * @param {number}     outW      Ausgabe-Canvas-Breite (px)
+ * @param {number}     outH      Ausgabe-Canvas-Höhe (px)
+ * @param {object}     [opts]
+ * @param {number}     [opts.simplifyTolerance=2]  DP-Toleranz in Ausgabe-px
+ * @param {number}     [opts.offsetPx=0]           Kontur-Offset nach außen in Ausgabe-px
+ * @returns {string} SVG path d-Attribut ("M x y L x y ... Z") oder ""
+ */
+function buildFreeformCutlineVector(mask, mw, mh, outW, outH, opts = {}) {
+  const { simplifyTolerance = 2, offsetPx = 0 } = opts;
+  const scaleX = outW / Math.max(1, mw);
+  const scaleY = outH / Math.max(1, mh);
+
+  // Profil: für jede Zeile/Spalte die äußersten Pixel
+  const topY   = new Float64Array(mw).fill(mh);   // oben
+  const botY   = new Float64Array(mw).fill(-1);    // unten
+  const leftX  = new Float64Array(mh).fill(mw);   // links
+  const rightX = new Float64Array(mh).fill(-1);   // rechts
+
+  for (let y = 0; y < mh; y++) {
+    const row = y * mw;
+    for (let x = 0; x < mw; x++) {
+      if (!mask[row + x]) continue;
+      if (y < topY[x])   topY[x]   = y;
+      if (y > botY[x])   botY[x]   = y;
+      if (x < leftX[y])  leftX[y]  = x;
+      if (x > rightX[y]) rightX[y] = x;
+    }
+  }
+
+  // Polygon im Uhrzeigersinn zusammensetzen
+  const pts = [];
+
+  // Oberkante: links → rechts (topY[x] = oberste y-Position für Spalte x)
+  for (let x = 0; x < mw; x++) {
+    if (topY[x] < mh) pts.push([(x + 0.5) * scaleX, topY[x] * scaleY]);
+  }
+  // Rechtskante: oben → unten (rightX[y] = rechteste x-Position für Zeile y)
+  for (let y = 0; y < mh; y++) {
+    if (rightX[y] >= 0) pts.push([(rightX[y] + 1) * scaleX, (y + 0.5) * scaleY]);
+  }
+  // Unterkante: rechts → links
+  for (let x = mw - 1; x >= 0; x--) {
+    if (botY[x] >= 0) pts.push([(x + 0.5) * scaleX, (botY[x] + 1) * scaleY]);
+  }
+  // Linkskante: unten → oben
+  for (let y = mh - 1; y >= 0; y--) {
+    if (leftX[y] < mw) pts.push([leftX[y] * scaleX, (y + 0.5) * scaleY]);
+  }
+
+  if (pts.length < 3) return "";
+
+  // Offset nach außen (einfach: Centroid-basiert – gut für konvexe/mäßig konkave Formen)
+  let finalPts = pts;
+  if (offsetPx > 0) {
+    // Centroid berechnen
+    let cx = 0, cy = 0;
+    for (const [x, y] of pts) { cx += x; cy += y; }
+    cx /= pts.length; cy /= pts.length;
+
+    finalPts = pts.map(([x, y]) => {
+      const dx = x - cx, dy = y - cy;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      return [x + (dx / len) * offsetPx, y + (dy / len) * offsetPx];
+    });
+  }
+
+  // Douglas-Peucker-Vereinfachung
+  const simplified = dpSimplifyPath(finalPts, simplifyTolerance);
+  if (simplified.length < 3) return "";
+
+  // Pfad schließen
+  const [x0, y0] = simplified[0];
+  let d = `M ${x0.toFixed(2)} ${y0.toFixed(2)}`;
+  for (let i = 1; i < simplified.length; i++) {
+    d += ` L ${simplified[i][0].toFixed(2)} ${simplified[i][1].toFixed(2)}`;
+  }
+  d += " Z";
+  return d;
+}
+
+/**
+ * Erzeugt den Vektorpfad für die Cutline aus dem Master-Mask-Objekt.
+ * Single Source of Truth: wird für SVG-Export und Cutline-Layer identisch genutzt.
+ *
+ * @param {object} master       Rückgabewert von buildFreeformMasterMask
+ * @param {number} outWpx       Ziel-Canvas-Breite (Export-Koordinaten)
+ * @param {number} outHpx       Ziel-Canvas-Höhe
+ * @param {object} [opts]
+ * @param {number} [opts.offsetPx=0]          Cutline-Offset nach außen
+ * @param {number} [opts.simplifyTolerance=2] DP-Toleranz in Export-px
+ * @returns {string} SVG path d
+ */
+function buildFreeformMasterCutline(master, outWpx, outHpx, opts = {}) {
+  if (!master?.insideMask) return "";
+  return buildFreeformCutlineVector(
+    master.insideMask,
+    master.mw,
+    master.mh,
+    Math.max(1, Math.round(outWpx)),
+    Math.max(1, Math.round(outHpx)),
+    opts
+  );
+}
 
 function composeStickerIntoBillingBox({ stickerCanvas, boxWpx, boxHpx }) {
   const bw = Math.max(1, Math.round(boxWpx));
@@ -1881,12 +1995,13 @@ export default function StickerCanvasClient({
         const shared = imgElUrlRef.current === imageUrl ? imgElRef.current : null;
         const img = shared || (await loadImage(imageUrl));
 
+        // ✅ maxMaskDim erhöht (war 520) für präzisere Kontur-Erkennung
         const master = buildFreeformMasterMask({
           imgEl: img,
           imgAspect: imgAspect || 1,
           getMasterRectFromAspect,
-          maxMaskDim: 520,
-          padPx: 120,
+          maxMaskDim: 1200,
+          padPx: 240,
         });
 
         if (!cancelled) {
@@ -2246,6 +2361,7 @@ export default function StickerCanvasClient({
     try {
       let freeformCutMaskDataUrl = "";
       let freeformBorderPxForExport = 0;
+      let freeformCutlinePathD = ""; // ✅ Vektorpfad für Cutline (Single Source of Truth)
 
       const shared = imgElUrlRef.current === imageUrl ? imgElRef.current : null;
       const img = shared || (await loadImage(imageUrl));
@@ -2334,37 +2450,49 @@ export default function StickerCanvasClient({
       } else if (isRounded) {
         drawContainInRect(ctx, pad, pad, baseWidthPx, baseHeightPx);
       } else if (shape === "freeform") {
+        // ✅ Master-Maske mit erhöhter Auflösung (maxMaskDim 1200, padPx 240)
         const master =
           freeformMaster ||
           buildFreeformMasterMask({
             imgEl: img,
             imgAspect: imgAspect || 1,
             getMasterRectFromAspect,
-            maxMaskDim: 520,
-            padPx: 120,
+            maxMaskDim: 1200,
+            padPx: 240,
           });
 
         const borderPx = mmToPxAtDpi(freeformBorderMm, EXPORT_DPI);
         freeformBorderPxForExport = borderPx;
 
-        // Wichtig: outWpx/outHpx müssen exakt den Maßen entsprechen, die auch fürs Freiform-Rendering genutzt werden.
+        const exportOutW = cmToPxAtDpi(widthCm, EXPORT_DPI);
+        const exportOutH = cmToPxAtDpi(heightCm, EXPORT_DPI);
+
+        // ✅ Raster-Cutmask (Fallback, falls kein Vektorpfad)
         freeformCutMaskDataUrl = renderFreeformMaskDataUrlFromMasterMask({
           master,
-          outWpx: cmToPxAtDpi(widthCm, EXPORT_DPI),
-          outHpx: cmToPxAtDpi(heightCm, EXPORT_DPI),
+          outWpx: exportOutW,
+          outHpx: exportOutH,
           borderPx,
         });
 
+        // ✅ Vektor-Cutline: Offset = borderPx (entspricht dem Sticker-Rand)
+        // buildFreeformMasterCutline nutzt die insideMask (ohne Border-Dilate),
+        // der Border-Offset wird als Vektoroffset addiert.
+        freeformCutlinePathD = buildFreeformMasterCutline(master, exportOutW, exportOutH, {
+          offsetPx: borderPx,
+          simplifyTolerance: Math.max(1, Math.round(exportOutW / 500)),
+        });
 
         const ffCanvas = renderFreeformFromMasterMask({
           master,
-          outWpx: cmToPxAtDpi(widthCm, EXPORT_DPI),
-          outHpx: cmToPxAtDpi(heightCm, EXPORT_DPI),
+          outWpx: exportOutW,
+          outHpx: exportOutH,
           bgColor: hasBgFill ? bgColorEff : "transparent",
           borderPx,
           forExport: true,
         });
 
+        // ✅ Canvas-Größe ist jetzt immer exportOutW × exportOutH (kein Crop-Bug)
         canvas.width = ffCanvas.width;
         canvas.height = ffCanvas.height;
         const ctxFF = canvas.getContext("2d");
@@ -2385,6 +2513,11 @@ export default function StickerCanvasClient({
           imageUrl: remoteUrl,
           freeformCutMaskDataUrl,
           freeformBorderPx: freeformBorderPxForExport,
+
+          // ✅ Vektorpfad für Cutline (Freiform) – hat Priorität über Raster-Fallback
+          cutlineEnabled: shape === "freeform" && !!freeformCutlinePathD,
+          cutlinePathD: freeformCutlinePathD || "",
+          cutlineStrokePx: 1,
 
           shape,
           widthPx: canvas.width,
