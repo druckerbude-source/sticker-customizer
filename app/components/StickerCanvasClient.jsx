@@ -1003,112 +1003,48 @@ function maskAspectFromBBox(mask, w, h) {
   return Math.min(10, Math.max(0.1, ar));
 }
 
-function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderPx, forExport = false }) {
+// Preview rendering – same geometry as export (renderFreeformWithPath2DClip):
+// • Canvas = outW×outH (no bbox-crop → no upscale blur, preview = export)
+// • Vector Path2D clip from buildFreeformCutlinePathFromMaster (Single Source of Truth)
+// • master.src drawn so inner area [padPx…padPx+innerW] fills [0…outW] exactly,
+//   equivalent to drawing imgEl at scale outW/innerW (same as renderFreeformWithPath2DClip)
+function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderPx }) {
   const outW = Math.max(1, Math.round(outWpx));
   const outH = Math.max(1, Math.round(outHpx));
 
-  const pxPerMask = outW / Math.max(1, master.mw);
-  const borderInMaskPx = Math.max(1, Math.round((borderPx || 0) / Math.max(1e-9, pxPerMask)));
-
-  const key = borderInMaskPx;
-  let cached = master?._cache?.get?.(key);
-
-  if (!cached) {
-    const backingMask = dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMaskPx);
-    const backingC = maskToAlphaCanvas(backingMask, master.mw, master.mh);
-    cached = { backingMask, backingC };
-    master._cache.set(key, cached);
-    if (master._cache.size > 12) {
-      const firstKey = master._cache.keys().next().value;
-      master._cache.delete(firstKey);
-    }
-  }
-
-  const backingMask = cached.backingMask;
-  const backingC = cached.backingC;
-
-  const bb = maskBBox(backingMask, master.mw, master.mh);
-
-  const M = 3;
-  const minX = Math.max(0, bb.minX - M);
-  const minY = Math.max(0, bb.minY - M);
-  const maxX = Math.min(master.mw - 1, bb.maxX + M);
-  const maxY = Math.min(master.mh - 1, bb.maxY + M);
-
-  const sx = outW / Math.max(1, master.mw);
-  const sy = outH / Math.max(1, master.mh);
-
-  const cropW = Math.max(1, Math.round((maxX - minX + 1) * sx));
-  const cropH = Math.max(1, Math.round((maxY - minY + 1) * sy));
-
   const canvas = document.createElement("canvas");
-  canvas.width = cropW;
-  canvas.height = cropH;
+  canvas.width = outW;
+  canvas.height = outH;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
 
-  const offX = -minX * sx;
-  const offY = -minY * sy;
-
+  ctx.clearRect(0, 0, outW, outH);
   ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
 
-  const isTransparentBg = !bgColor || String(bgColor).toLowerCase() === "transparent";
+  // Same clip path as export – guarantees preview = export geometry
+  const pathD = buildFreeformCutlinePathFromMaster(master, outW, outH, borderPx || 0);
+  if (pathD) ctx.clip(new Path2D(pathD));
 
-  // ✅ Hintergrund-Füllung nur für nicht-transparente Varianten
-  // (sonst würden die RGB-Werte der Alpha-Maske als "schwarz" sichtbar bleiben)
-  if (!isTransparentBg) {
-    ctx.globalCompositeOperation = "source-over";
-    ctx.drawImage(backingC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-
-    ctx.globalCompositeOperation = "source-in";
-    ctx.fillStyle = bgColor || "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  } else if (!forExport) {
-    // ✅ Preview-Hilfe für transparente Freiform:
-    // zeige den Rand/Stickerfilm dezent, ohne den Export zu verfälschen
-
-    // (1) "Film" über die gesamte Stickerfläche sehr subtil
-    ctx.globalCompositeOperation = "source-over";
-    ctx.drawImage(backingC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-
-    ctx.globalCompositeOperation = "source-in";
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // (2) 1px Cut-Outline (Ring am äußeren Rand)
-    try {
-      const innerMask = dilateMaskExact(master.insideMask, master.mw, master.mh, Math.max(0, borderInMaskPx - 1));
-      const ringMask = new Uint8Array(master.mw * master.mh);
-      for (let i = 0; i < ringMask.length; i++) ringMask[i] = backingMask[i] && !innerMask[i] ? 1 : 0;
-      const ringC = maskToAlphaCanvas(ringMask, master.mw, master.mh);
-
-      ctx.globalCompositeOperation = "source-over";
-      ctx.drawImage(ringC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-      ctx.globalCompositeOperation = "source-in";
-      ctx.fillStyle = "rgba(255,255,255,0.35)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    } catch (e) {
-      // ignore
-    }
+  if (bgColor && String(bgColor).toLowerCase() !== "transparent") {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, outW, outH);
   }
 
-  ctx.restore();
-
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.globalCompositeOperation = "source-over";
-  ctx.drawImage(master.src, 0, 0, master.masterW, master.masterH, offX, offY, outW, outH);
-  ctx.restore();
-
-  ctx.save();
+  // Map master.src so inner area → full canvas:
+  //   out_x = (src_x − padPx) * outW/innerW
+  //   ⟹ drawImage at (−padPx·scX, −padPx·scY) with size (masterW·scX, masterH·scY)
+  const scX = outW / master.innerW;
+  const scY = outH / master.innerH;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.globalCompositeOperation = "destination-in";
-  ctx.drawImage(backingC, 0, 0, master.mw, master.mh, offX, offY, outW, outH);
-  ctx.restore();
+  ctx.drawImage(
+    master.src,
+    0, 0, master.masterW, master.masterH,
+    -master.padPx * scX, -master.padPx * scY,
+    master.masterW * scX, master.masterH * scY
+  );
 
+  ctx.restore();
   return canvas;
 }
 
