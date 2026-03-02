@@ -1298,13 +1298,15 @@ function pointsToSmoothPathD(points, scaleX, scaleY, offsetX = 0, offsetY = 0) {
   return d;
 }
 
-// renderOutW = outWpx an renderFreeformWithPath2DClip (Design-Dims), NICHT billing-Dims.
-// Stellt sicher dass borderInMask identisch ist wie im Renderer.
-function buildFreeformCutlinePathFromMaster(master, outW, outH, borderPxOut, renderOutW) {
+// Single Source of Truth: mask → outW×outH vector path (no bbox crop).
+// Border formula accounts for padding in master canvas.
+function buildFreeformCutlinePathFromMaster(master, outW, outH, borderPxOut) {
   if (!master?.insideMask || !master.mw || !master.mh) return "";
 
-  const renderSx = Math.max(1, renderOutW || outW) / Math.max(1, master.mw);
-  const borderInMask = Math.max(1, Math.round((borderPxOut || 0) / Math.max(1e-9, renderSx)));
+  const borderInMask = Math.max(1, Math.round(
+    (borderPxOut || 0) * Math.max(1, master.mw) * Math.max(1, master.innerW) /
+    (Math.max(1, outW) * Math.max(1, master.masterW))
+  ));
 
   const backingMask = dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMask);
 
@@ -1314,83 +1316,53 @@ function buildFreeformCutlinePathFromMaster(master, outW, outH, borderPxOut, ren
   const simplified = rdp(rawPts, 2.0);
   if (simplified.length < 2) return "";
 
-  // Gleiche Bbox-Crop-Logik wie renderFreeformFromMasterMask / renderFreeformWithPath2DClip
-  const M = 3;
-  const bb = maskBBox(backingMask, master.mw, master.mh);
-  const minX = Math.max(0, bb.minX - M);
-  const minY = Math.max(0, bb.minY - M);
-  const maxX = Math.min(master.mw - 1, bb.maxX + M);
-  const maxY = Math.min(master.mh - 1, bb.maxY + M);
+  // Correct coordinate mapping: mask → outW×outH (no bbox crop, offset absorbs padding)
+  const scaleX = (master.masterW / master.mw) * (outW / master.innerW);
+  const scaleY = (master.masterH / master.mh) * (outH / master.innerH);
+  const offsetX = -master.padPx * outW / master.innerW;
+  const offsetY = -master.padPx * outH / master.innerH;
 
-  const cropW = Math.max(1, maxX - minX + 1);
-  const cropH = Math.max(1, maxY - minY + 1);
-  const sx = outW / cropW;
-  const sy = outH / cropH;
-
-  return pointsToSmoothPathD(simplified, sx, sy, -minX * sx, -minY * sy);
+  return pointsToSmoothPathD(simplified, scaleX, scaleY, offsetX, offsetY);
 }
 
 // High-quality freeform export using vector Path2D clip for crisp edges at any DPI.
+// Canvas = exact sticker design dimensions (outW×outH). No bbox crop.
 function renderFreeformWithPath2DClip({ master, imgEl, outWpx, outHpx, bgColor, borderPx }) {
   const outW = Math.max(1, Math.round(outWpx));
   const outH = Math.max(1, Math.round(outHpx));
 
-  const pxPerMask = outW / Math.max(1, master.mw);
-  const borderInMaskPx = Math.max(1, Math.round((borderPx || 0) / Math.max(1e-9, pxPerMask)));
-  const backingMask = dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMaskPx);
-
-  const bb = maskBBox(backingMask, master.mw, master.mh);
-  const M = 3;
-  const minX = Math.max(0, bb.minX - M);
-  const minY = Math.max(0, bb.minY - M);
-  const maxX = Math.min(master.mw - 1, bb.maxX + M);
-  const maxY = Math.min(master.mh - 1, bb.maxY + M);
-
-  const sx = outW / Math.max(1, master.mw);
-  const sy = outH / Math.max(1, master.mh);
-  const cropW = Math.max(1, Math.round((maxX - minX + 1) * sx));
-  const cropH = Math.max(1, Math.round((maxY - minY + 1) * sy));
-  const offX = -minX * sx;
-  const offY = -minY * sy;
-
-  // Vector path in crop-canvas coordinate space (identical to SVG cutline path)
-  const pathD = buildFreeformCutlinePathFromMaster(master, cropW, cropH, borderPx, outW);
-
+  // Canvas = exact sticker dimensions (no bbox crop → no blur from upscaling)
   const canvas = document.createElement("canvas");
-  canvas.width = cropW;
-  canvas.height = cropH;
+  canvas.width = outW;
+  canvas.height = outH;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
 
-  ctx.clearRect(0, 0, cropW, cropH);
+  ctx.clearRect(0, 0, outW, outH);
   ctx.save();
 
-  if (pathD) {
-    ctx.clip(new Path2D(pathD));
-  }
+  const pathD = buildFreeformCutlinePathFromMaster(master, outW, outH, borderPx || 0);
+  if (pathD) ctx.clip(new Path2D(pathD));
 
   if (bgColor && String(bgColor).toLowerCase() !== "transparent") {
     ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, cropW, cropH);
+    ctx.fillRect(0, 0, outW, outH);
   }
 
+  // Image: scale relative to inner area (outW/innerW), NOT masterW
   const iw = imgEl.naturalWidth || imgEl.width || 1;
   const ih = imgEl.naturalHeight || imgEl.height || 1;
   const scaleFit = Math.min(master.innerW / iw, master.innerH / ih);
-  const dw_m = iw * scaleFit;
-  const dh_m = ih * scaleFit;
-  const dx_m = master.padPx + (master.innerW - dw_m) / 2;
-  const dy_m = master.padPx + (master.innerH - dh_m) / 2;
-  const scMx = outW / master.masterW;
-  const scMy = outH / master.masterH;
-  const img_x = dx_m * scMx + offX;
-  const img_y = dy_m * scMy + offY;
-  const img_w = dw_m * scMx;
-  const img_h = dh_m * scMy;
+  const dw_i = iw * scaleFit;
+  const dh_i = ih * scaleFit;
+  const dx_i = (master.innerW - dw_i) / 2;
+  const dy_i = (master.innerH - dh_i) / 2;
+  const scX = outW / master.innerW;
+  const scY = outH / master.innerH;
 
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(imgEl, 0, 0, iw, ih, img_x, img_y, img_w, img_h);
+  ctx.drawImage(imgEl, 0, 0, iw, ih, dx_i * scX, dy_i * scY, dw_i * scX, dh_i * scY);
 
   ctx.restore();
   return canvas;
@@ -2440,10 +2412,9 @@ export default function StickerCanvasClient({
   // Export
   // ==============================
 
-  // Cutline-Pfad für Export erzeugen (identisch mit frontend-Version).
-  // freeformRenderWidthPx = outWpx aus renderFreeformWithPath2DClip (Design-Dims),
-  // damit borderInMask exakt übereinstimmt.
-  function buildCutlinePathDForExport({ shape: sh, canvasW, canvasH, baseWidthPx, baseHeightPx, freeformMaster: fm, img: imgEl, imgAspect: ia, freeformRenderWidthPx }) {
+  // Cutline-Pfad für Export erzeugen. Freeform uses buildFreeformCutlinePathFromMaster
+  // with correct inner-area scale (no renderOutW workaround needed).
+  function buildCutlinePathDForExport({ shape: sh, canvasW, canvasH, baseWidthPx, baseHeightPx, freeformMaster: fm, img: imgEl, imgAspect: ia }) {
     const w = Math.max(1, Math.round(canvasW));
     const h = Math.max(1, Math.round(canvasH));
     const bw = Math.max(1, Math.round(baseWidthPx || w));
@@ -2488,8 +2459,7 @@ export default function StickerCanvasClient({
         maxMaskDim: 780,
         padPx: 120,
       });
-      const renderW = freeformRenderWidthPx || bw;
-      return buildFreeformCutlinePathFromMaster(master, w, h, borderPxOut, renderW);
+      return buildFreeformCutlinePathFromMaster(master, w, h, borderPxOut);
     }
     return "";
   }
@@ -2650,8 +2620,6 @@ export default function StickerCanvasClient({
             freeformMaster: exportMasterRef || freeformMaster,
             img,
             imgAspect,
-            // Design-Dims als renderOutW – identisch mit outWpx in renderFreeformWithPath2DClip
-            freeformRenderWidthPx: cmToPxAtDpi(widthCm, EXPORT_DPI),
           })
         : "";
 
