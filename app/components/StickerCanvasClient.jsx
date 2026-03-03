@@ -1005,46 +1005,78 @@ function maskAspectFromBBox(mask, w, h) {
 
 // Preview rendering – same geometry as export (renderFreeformWithPath2DClip):
 // • Canvas = outW×outH (no bbox-crop → no upscale blur, preview = export)
-// • Vector Path2D clip from buildFreeformCutlinePathFromMaster (Single Source of Truth)
-// • master.src drawn so inner area [padPx…padPx+innerW] fills [0…outW] exactly,
-//   equivalent to drawing imgEl at scale outW/innerW (same as renderFreeformWithPath2DClip)
+// • Raster destination-in compositing: guaranteed visible output (no Path2D winding issues)
+// • master.src drawn so inner area [padPx…padPx+innerW] fills [0…outW] exactly
 function renderFreeformFromMasterMask({ master, outWpx, outHpx, bgColor, borderPx }) {
   const outW = Math.max(1, Math.round(outWpx));
   const outH = Math.max(1, Math.round(outHpx));
+
+  // Border in mask pixels – same formula as buildFreeformCutlinePathFromMaster
+  const borderInMask = Math.max(0, Math.round(
+    (borderPx || 0) * Math.max(1, master.mw) * Math.max(1, master.innerW) /
+    (Math.max(1, outW) * Math.max(1, master.masterW))
+  ));
+
+  // Cache dilated mask alpha canvas (expensive dilateMaskExact)
+  if (!master._cache) master._cache = new Map();
+  let cached = master._cache.get(borderInMask);
+  if (!cached) {
+    const backingMask = borderInMask > 0
+      ? dilateMaskExact(master.insideMask, master.mw, master.mh, borderInMask)
+      : master.insideMask;
+    const backingC = maskToAlphaCanvas(backingMask, master.mw, master.mh);
+    cached = { backingC };
+    master._cache.set(borderInMask, cached);
+    if (master._cache.size > 12) master._cache.delete(master._cache.keys().next().value);
+  }
+  const { backingC } = cached;
 
   const canvas = document.createElement("canvas");
   canvas.width = outW;
   canvas.height = outH;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas Kontext nicht verfügbar.");
-
   ctx.clearRect(0, 0, outW, outH);
-  ctx.save();
 
-  // Same clip path as export – guarantees preview = export geometry
-  const pathD = buildFreeformCutlinePathFromMaster(master, outW, outH, borderPx || 0);
-  if (pathD) ctx.clip(new Path2D(pathD));
-
-  if (bgColor && String(bgColor).toLowerCase() !== "transparent") {
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, outW, outH);
-  }
-
-  // Map master.src so inner area → full canvas:
-  //   out_x = (src_x − padPx) * outW/innerW
-  //   ⟹ drawImage at (−padPx·scX, −padPx·scY) with size (masterW·scX, masterH·scY)
+  // Transform: inner area [padPx, padPx+innerW] → [0, outW]
   const scX = outW / master.innerW;
   const scY = outH / master.innerH;
+  const dx = -master.padPx * scX;
+  const dy = -master.padPx * scY;
+  const dw = master.masterW * scX;
+  const dh = master.masterH * scY;
+
+  // 1) Optional background fill masked to sticker shape
+  if (bgColor && String(bgColor).toLowerCase() !== "transparent") {
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(backingC, 0, 0, master.mw, master.mh, dx, dy, dw, dh);
+    ctx.globalCompositeOperation = "source-in";
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, outW, outH);
+    ctx.restore();
+  }
+
+  // 2) Draw image (source-over on top of optional bg)
+  ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(
     master.src,
     0, 0, master.masterW, master.masterH,
-    -master.padPx * scX, -master.padPx * scY,
-    master.masterW * scX, master.masterH * scY
+    dx, dy, dw, dh
   );
-
   ctx.restore();
+
+  // 3) Clip to dilated mask (destination-in: keeps only pixels within shape)
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.drawImage(backingC, 0, 0, master.mw, master.mh, dx, dy, dw, dh);
+  ctx.restore();
+
   return canvas;
 }
 
