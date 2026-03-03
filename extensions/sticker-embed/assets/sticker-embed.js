@@ -128,6 +128,10 @@ function initStickerEmbed() {
 
     backdrop?.addEventListener("click", closeModal);
     closeBtn?.addEventListener("click", closeModal);
+
+    // React fires this event after successful cart add (before optional redirect).
+    // Close the modal so the customer sees the updated cart icon / page state.
+    window.addEventListener("sc:sticker-added-to-cart", closeModal);
   });
 }
 

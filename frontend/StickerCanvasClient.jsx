@@ -1293,6 +1293,7 @@ export default function StickerCanvasClient({
 
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [addedMsg, setAddedMsg] = useState("");
   const [goToCartAfterAdd, setGoToCartAfterAdd] = useState(true);
@@ -1353,10 +1354,16 @@ export default function StickerCanvasClient({
 
     const measure = () => {
       const r = el.getBoundingClientRect?.();
-      if (!r) return;
-
-      if (r.width > 0 && r.height > 0) {
-        const next = clampWH(r.width, r.height);
+      if (!r || r.width <= 0 || r.height <= 0) return;
+      // getBoundingClientRect returns border-box (includes padding).
+      // Subtract computed padding to get content area, consistent with ResizeObserver contentRect.
+      const st = window.getComputedStyle(el);
+      const pw = parseFloat(st.paddingLeft || "0") + parseFloat(st.paddingRight || "0");
+      const ph = parseFloat(st.paddingTop || "0") + parseFloat(st.paddingBottom || "0");
+      const cw = Math.max(0, r.width - pw);
+      const ch = Math.max(0, r.height - ph);
+      if (cw > 0 && ch > 0) {
+        const next = clampWH(cw, ch);
         setRightBox((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
       }
     };
@@ -2605,91 +2612,76 @@ export default function StickerCanvasClient({
   // Cart
   // ==============================
   async function addToCart() {
+    if (isAdding) return; // prevent double-submit
+    setIsAdding(true);
     setErrorMsg("");
     setAddedMsg("");
 
-    const trustCatalogVid = !!hasCatalogColors || String(colorKey || "white") === "white";
-    const variantIdFromCatalog = trustCatalogVid ? Number(selectedSizeObj?.variantId) || 0 : 0;
-    const variantIdFallback = Number(selectedVariantId) || Number(productId) || 0;
-    const variantId = variantIdFromCatalog || variantIdFallback;
-
-    if (!variantId) {
-      setErrorMsg("Variant-ID fehlt. Prüfe im Katalog: shape + colorKey + sizeKey müssen eine variantId liefern.");
-      return;
-    }
-
-    if (!imageUrl) {
-      setErrorMsg("Bitte zuerst ein Bild hochladen.");
-      return;
-    }
-
-    let remoteUrl = "";
     try {
-      remoteUrl = await ensureRemoteUpload();
-    } catch (e) {
-      setErrorMsg(e?.message || String(e));
-      return;
-    }
+      const trustCatalogVid = !!hasCatalogColors || String(colorKey || "white") === "white";
+      const variantIdFromCatalog = trustCatalogVid ? Number(selectedSizeObj?.variantId) || 0 : 0;
+      const variantIdFallback = Number(selectedVariantId) || Number(productId) || 0;
+      const variantId = variantIdFromCatalog || variantIdFallback;
 
-    let svgUrl = "";
-    try {
-      svgUrl = await ensureSvgExportForCart(remoteUrl);
-    } catch (e) {
-      setErrorMsg(e?.message || String(e));
-      return;
-    }
+      if (!variantId) {
+        throw new Error("Variant-ID fehlt. Prüfe im Katalog: shape + colorKey + sizeKey müssen eine variantId liefern.");
+      }
+      if (!imageUrl) {
+        throw new Error("Bitte zuerst ein Bild hochladen.");
+      }
 
-    const pieces = Math.max(1, Number(realPieces) || calcPiecesFixed(shape, effWcm, effHcm));
-    if (pieces > 9999) {
-      setErrorMsg("Stückzahl zu groß für den Warenkorb (Limit 9999).");
-      return;
-    }
+      const remoteUrl = await ensureRemoteUpload();
+      const svgUrl = await ensureSvgExportForCart(remoteUrl);
 
-    const wNorm = Math.min(Number(effWcm) || 1, Number(effHcm) || 1);
-    const hNorm = Math.max(Number(effWcm) || 1, Number(effHcm) || 1);
-    const major = getMajorForPieces(shape, wNorm, hNorm);
+      const pieces = Math.max(1, Number(realPieces) || calcPiecesFixed(shape, effWcm, effHcm));
+      if (pieces > 9999) {
+        throw new Error("Stückzahl zu groß für den Warenkorb (Limit 9999).");
+      }
 
-    const v =
-      Array.isArray(productVariants) && productVariants.length
-        ? productVariants.find((x) => Number(x?.id) === Number(variantId))
-        : null;
+      const wNorm = Math.min(Number(effWcm) || 1, Number(effHcm) || 1);
+      const hNorm = Math.max(Number(effWcm) || 1, Number(effHcm) || 1);
+      const major = getMajorForPieces(shape, wNorm, hNorm);
 
-    const variantTitle = String(v?.title || selectedVariantTitle || "");
-    const variantPriceEur =
-      typeof v?.price !== "undefined" ? toEuroFromCents(v.price) : Number(selectedVariantPrice) || 0;
+      const v =
+        Array.isArray(productVariants) && productVariants.length
+          ? productVariants.find((x) => Number(x?.id) === Number(variantId))
+          : null;
 
-    const items = [
-      {
-        id: variantId,
-        quantity: 1,
-        properties: {
-          _sc_line_id: String(Date.now()),
-          _sc_shape: String(shape),
+      const variantTitle = String(v?.title || selectedVariantTitle || "");
+      const variantPriceEur =
+        typeof v?.price !== "undefined" ? toEuroFromCents(v.price) : Number(selectedVariantPrice) || 0;
 
-          _sc_major_cm: fmtCm(major),
-          _sc_print_length_cm: String(PRINT_LENGTH_CM),
+      const items = [
+        {
+          id: variantId,
+          quantity: 1,
+          properties: {
+            _sc_line_id: String(Date.now()),
+            _sc_shape: String(shape),
 
-          _sc_pieces_per_pack: String(pieces),
-          _sc_total_pieces_hint: String(pieces),
+            _sc_major_cm: fmtCm(major),
+            _sc_print_length_cm: String(PRINT_LENGTH_CM),
 
-          _sc_design_w_cm: shape === "freeform" ? fmtCm(widthCm) : "",
-          _sc_design_h_cm: shape === "freeform" ? fmtCm(heightCm) : "",
+            _sc_pieces_per_pack: String(pieces),
+            _sc_total_pieces_hint: String(pieces),
 
-          _sc_bg_mode: String(bgMode || "color"),
-          _sc_bg: String(bgColorEff || ""),
-          _sc_border_mm: String(freeformBorderMm),
+            _sc_design_w_cm: shape === "freeform" ? fmtCm(widthCm) : "",
+            _sc_design_h_cm: shape === "freeform" ? fmtCm(heightCm) : "",
 
-          _sc_image: remoteUrl,
-          _sc_svg: svgUrl,
+            _sc_bg_mode: String(bgMode || "color"),
+            _sc_bg: String(bgColorEff || ""),
+            _sc_border_mm: String(freeformBorderMm),
 
-          _sc_variant_id: String(variantId),
-          _sc_variant_title: variantTitle,
-          _sc_variant_price_eur: String(variantPriceEur.toFixed(2)),
+            _sc_image: remoteUrl,
+            _sc_svg: svgUrl,
+
+            _sc_variant_id: String(variantId),
+            _sc_variant_title: variantTitle,
+            _sc_variant_price_eur: String(variantPriceEur.toFixed(2)),
+          },
         },
-      },
-    ];
+      ];
 
-    try {
       const res = await fetch("/cart/add.js", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2701,13 +2693,24 @@ export default function StickerCanvasClient({
         throw new Error(`Warenkorb Fehler ${res.status}: ${t}`);
       }
 
+      // Notify host page (sticker-embed.js listens to close the modal)
+      window.dispatchEvent(new CustomEvent("sc:sticker-added-to-cart", {
+        bubbles: true,
+        detail: { shape, variantId },
+      }));
+
       if (goToCartAfterAdd) {
         window.location.href = "/cart";
       } else {
         setAddedMsg("Zum Warenkorb hinzugefügt. Du kannst jetzt Form/Farbe/Größe ändern und erneut hinzufügen.");
       }
     } catch (e) {
-      setErrorMsg(e?.message || String(e));
+      const msg = e?.message || String(e);
+      // eslint-disable-next-line no-console
+      if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") console.error("[sc:addToCart]", e);
+      setErrorMsg(msg);
+    } finally {
+      setIsAdding(false);
     }
   }
 
@@ -2715,7 +2718,9 @@ export default function StickerCanvasClient({
   // ✅ Preview-Dims: an Right Panel koppeln
   // ==============================
   const previewDims = useMemo(() => {
-    const pad = isMobile ? 14 : 24;
+    // rightBox now holds content area (padding already subtracted in measure() / contentRect).
+    // pad is a small safety margin inside the content area.
+    const pad = isMobile ? 8 : 12;
 
     const maxW = Math.max(240, (rightBox.w || vp.w) - pad * 2);
     const maxH = Math.max(240, (rightBox.h || vp.h) - pad * 2);
@@ -3001,8 +3006,8 @@ export default function StickerCanvasClient({
           ) : null}
         </div>
 
-        <button type="button" className="scBtn scBtnPrimary" onClick={addToCart} disabled={!imageUrl}>
-          In den Warenkorb
+        <button type="button" className="scBtn scBtnPrimary" onClick={addToCart} disabled={!imageUrl || isAdding || uploading}>
+          {isAdding ? "Wird hinzugefügt…" : "In den Warenkorb"}
         </button>
 
         {addedMsg ? (
@@ -3554,6 +3559,8 @@ const SC_CSS = `
 .scPreviewFrame{
   width: var(--scFrameW, 520px);
   height: var(--scFrameH, 520px);
+  max-width: 100%;
+  max-height: 100%;
   display:flex;
   align-items:center;
   justify-content:center;
