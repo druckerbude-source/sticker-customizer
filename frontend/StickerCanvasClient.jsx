@@ -3626,6 +3626,8 @@ const SC_CSS = `
 .scFreeformBox{
   width: var(--scFrameW, 520px);
   height: var(--scFrameH, 520px);
+  max-width: 100%;
+  max-height: 100%;
   display:inline-flex;
   align-items:center;
   justify-content:center;
