@@ -38,7 +38,7 @@ body.sc-lock{ overflow: hidden !important; }
    - .sticker-embed-modal-open
    ========================================================= */
 
-/* Default: verborgen (damit nichts „unsichtbar aber im Flow“ liegt) */
+/* Default: verborgen (damit nichts „unsichtbar aber im Flow" liegt) */
 .sticker-embed-modal[aria-hidden="true"],
 .sticker-embed-modal:not([aria-hidden]){
   display: none;
@@ -73,6 +73,18 @@ body.sc-lock{ overflow: hidden !important; }
   min-height: 100% !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+}
+
+/* =========================================================
+   ✅ Min-height reset in modal (ALL screen sizes)
+   Without this, scRight min-height:560px / scLeft content-height
+   can make the grid taller than 100dvh → clipped by overflow:hidden.
+   ========================================================= */
+.sticker-embed-modal--open .scRight,
+.sticker-embed-modal[aria-hidden="false"] .scRight,
+.sticker-embed-modal--open .scLeft,
+.sticker-embed-modal[aria-hidden="false"] .scLeft {
+  min-height: 0 !important;
 }
 
 /* Backdrop (falls vorhanden) */
@@ -139,8 +151,12 @@ body.sc-lock{ overflow: hidden !important; }
 }
 /* =========================================================
    ✅ MOBILE FIX: 50/50 Preview + Settings + Scroll (iOS Safari)
-   - Preview oben (50vh)
-   - Konfigurator unten (50vh) + scrollbar
+   - Preview oben (50dvh)
+   - Konfigurator unten (50dvh) + scrollbar
+
+   WICHTIG: Selektoren nutzen .sticker-embed-modal--open (die tatsächlich
+   gesetzte Klasse aus sticker-embed.js), NICHT #sc-modal-root.sc-open
+   (dieses Element existiert nicht im HTML).
    ========================================================= */
 
 @media (max-width: 900px) {
@@ -150,11 +166,9 @@ body.sc-lock{ overflow: hidden !important; }
     overflow: hidden !important;
   }
 
-  /* Modal nimmt volle Höhe ein */
-  #sc-modal-root.sc-open,
-  #sc-modal-root.sc-open .sticker-embed-modal,
-  #sc-modal-root.sc-open .sticker-embed-dialog,
-  #sc-modal-root.sc-open .sticker-embed-react-root {
+  /* Modal + innere Elemente: volle Höhe sicherstellen */
+  .sticker-embed-modal--open .sticker-embed-dialog,
+  .sticker-embed-modal--open .sticker-embed-react-root {
     height: 100dvh !important;
     max-height: 100dvh !important;
     min-height: 0 !important;
@@ -165,7 +179,7 @@ body.sc-lock{ overflow: hidden !important; }
      Stattdessen direkt die bekannten Klassen aus StickerCanvasClient.jsx adressieren. */
 
   /* Container: oben Preview (fix), unten Settings (scroll) */
-  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap {
+  .sticker-embed-modal--open .sticker-embed-react-root .scWrap {
     height: 100dvh !important;
     max-height: 100dvh !important;
     min-height: 0 !important;
@@ -181,7 +195,7 @@ body.sc-lock{ overflow: hidden !important; }
   }
 
   /* Preview oben – bleibt fest */
-  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap .scRight {
+  .sticker-embed-modal--open .sticker-embed-react-root .scWrap .scRight {
     grid-row: 1 !important;
     order: 0 !important;
     min-height: 0 !important;
@@ -195,7 +209,7 @@ body.sc-lock{ overflow: hidden !important; }
   }
 
   /* Settings unten – nur dieser Bereich scrollt */
-  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap .scLeft {
+  .sticker-embed-modal--open .sticker-embed-react-root .scWrap .scLeft {
     grid-row: 2 !important;
     order: 0 !important;
 
@@ -212,12 +226,12 @@ body.sc-lock{ overflow: hidden !important; }
   }
 
   /* Optional: bessere Touch-Usability */
-  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap .scLeft * {
+  .sticker-embed-modal--open .sticker-embed-react-root .scWrap .scLeft * {
     scroll-margin-top: 12px;
   }
 
   /* Buttons full width (mobile) */
-  #sc-modal-root.sc-open .sticker-embed-react-root button,
+  .sticker-embed-modal--open .sticker-embed-react-root button,
   body.sc-overlay-open [data-block-handle="sticker-configurator"] .sticker-embed-modal button {
     width: 100% !important;
   }
@@ -225,10 +239,10 @@ body.sc-lock{ overflow: hidden !important; }
 
 /* sehr kleine Höhen: Preview etwas weniger, damit Settings mehr Platz haben */
 @media (max-width: 900px) and (max-height: 720px) {
-  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap {
+  .sticker-embed-modal--open .sticker-embed-react-root .scWrap {
     grid-template-rows: 44dvh 56dvh !important;
   }
-  #sc-modal-root.sc-open .sticker-embed-react-root .scWrap .scRight {
+  .sticker-embed-modal--open .sticker-embed-react-root .scWrap .scRight {
     height: 44dvh !important;
   }
 }

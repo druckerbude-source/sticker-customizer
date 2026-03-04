@@ -2659,14 +2659,23 @@ export default function StickerCanvasClient({
             _sc_line_id: String(Date.now()),
             _sc_shape: String(shape),
 
+            // Effective sticker dimensions (all shapes, in cm)
+            _sc_w_cm: fmtCm(effWcm),
+            _sc_h_cm: fmtCm(effHcm),
+
             _sc_major_cm: fmtCm(major),
             _sc_print_length_cm: String(PRINT_LENGTH_CM),
 
             _sc_pieces_per_pack: String(pieces),
             _sc_total_pieces_hint: String(pieces),
 
+            // Freeform-specific: raw user input dimensions
             _sc_design_w_cm: shape === "freeform" ? fmtCm(widthCm) : "",
             _sc_design_h_cm: shape === "freeform" ? fmtCm(heightCm) : "",
+
+            // Material / color selection
+            _sc_color_key: String(colorKey || "white"),
+            _sc_size_key: String(sizeKey || ""),
 
             _sc_bg_mode: String(bgMode || "color"),
             _sc_bg: String(bgColorEff || ""),
