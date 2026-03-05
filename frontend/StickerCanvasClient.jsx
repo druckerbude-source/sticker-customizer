@@ -1284,7 +1284,7 @@ export default function StickerCanvasClient({
   const [freeformBorderMm, setFreeformBorderMm] = useState(3);
 
   const [productVariants, setProductVariants] = useState([]);
-  const [selectedVariantId, setSelectedVariantId] = useState(() => Number(productId) || 0);
+  const [selectedVariantId, setSelectedVariantId] = useState(() => Number(initialVariantId) || Number(productId) || 0);
   const [selectedVariantPrice, setSelectedVariantPrice] = useState(0);
   const [selectedVariantTitle, setSelectedVariantTitle] = useState("");
 
@@ -3580,6 +3580,8 @@ const SC_CSS = `
 .scSurface{
   width: var(--scSurfW, 460px);
   height: var(--scSurfH, 460px);
+  max-width: 100%;
+  max-height: 100%;
   display:inline-flex;
   align-items:center;
   justify-content:center;
