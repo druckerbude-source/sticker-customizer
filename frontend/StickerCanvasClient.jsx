@@ -2687,6 +2687,25 @@ export default function StickerCanvasClient({
             _sc_variant_id: String(variantId),
             _sc_variant_title: variantTitle,
             _sc_variant_price_eur: String(variantPriceEur.toFixed(2)),
+
+            // ── Structured properties (Shopify order / fulfillment) ──
+            // sc_config: full configuration as JSON for backend processing
+            sc_config: JSON.stringify({
+              shape: String(shape),
+              wcm: Number(effWcm).toFixed(2),
+              hcm: Number(effHcm).toFixed(2),
+              colorKey: String(colorKey || "white"),
+              sizeKey: String(sizeKey || ""),
+              bgMode: String(bgMode || "color"),
+              bgColor: String(bgColorEff || ""),
+              borderMm: String(freeformBorderMm),
+              pieces: Number(pieces),
+              variantId: String(variantId),
+            }),
+            // sc_preview_url: uploaded source image (Shopify CDN)
+            sc_preview_url: remoteUrl,
+            // sc_file_url: exported SVG + cutline (Shopify CDN)
+            sc_file_url: svgUrl,
           },
         },
       ];
@@ -2731,8 +2750,11 @@ export default function StickerCanvasClient({
     // pad is a small safety margin inside the content area.
     const pad = isMobile ? 8 : 12;
 
-    const maxW = Math.max(240, (rightBox.w || vp.w) - pad * 2);
-    const maxH = Math.max(240, (rightBox.h || vp.h) - pad * 2);
+    // Cap to viewport so that if rightBox is stale/oversized (e.g. scLeft content
+    // drove the grid row beyond 100dvh before the grid-template-rows fix takes effect),
+    // the preview never overflows the visible screen.
+    const maxW = Math.max(240, Math.min((rightBox.w || vp.w) - pad * 2, vp.w - pad * 2));
+    const maxH = Math.max(240, Math.min((rightBox.h || vp.h) - pad * 2, vp.h * 0.88));
 
     const clampAr = (ar) => {
       const a = Number(ar);
@@ -3217,6 +3239,7 @@ const SC_CSS = `
   align-items: center;
   justify-content: center;
   min-height: 560px;
+  overflow: hidden;
 }
 
 @media (max-width: 900px){

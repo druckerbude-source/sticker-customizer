@@ -73,18 +73,38 @@ body.sc-lock{ overflow: hidden !important; }
   min-height: 100% !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+  /*
+   * CRITICAL: grid-template-rows: minmax(0, 1fr) forces the single grid row to
+   * fill exactly the available height (100dvh). Without this, the row is
+   * auto-sized to scLeft's full content height (1000px+), which pushes scRight
+   * to be very tall, causing the centered preview frame to extend beyond the
+   * scWrap overflow:hidden boundary → bottom of preview gets clipped.
+   */
+  grid-template-rows: minmax(0, 1fr) !important;
 }
 
 /* =========================================================
-   ✅ Min-height reset in modal (ALL screen sizes)
-   Without this, scRight min-height:560px / scLeft content-height
-   can make the grid taller than 100dvh → clipped by overflow:hidden.
+   ✅ Min-height reset + height constraint in modal (ALL screen sizes)
+   min-height:0 removes the 560px floor so the grid can control row height.
+   height:100% fills the grid cell (= minmax(0,1fr) row = 100dvh).
+   overflow:hidden on scRight prevents any residual overflow from clipping
+   the centered preview. scLeft overrides to scroll.
    ========================================================= */
 .sticker-embed-modal--open .scRight,
 .sticker-embed-modal[aria-hidden="false"] .scRight,
 .sticker-embed-modal--open .scLeft,
 .sticker-embed-modal[aria-hidden="false"] .scLeft {
   min-height: 0 !important;
+  height: 100% !important;
+}
+.sticker-embed-modal--open .scRight,
+.sticker-embed-modal[aria-hidden="false"] .scRight {
+  overflow: hidden !important;
+}
+.sticker-embed-modal--open .scLeft,
+.sticker-embed-modal[aria-hidden="false"] .scLeft {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 
 /* Backdrop (falls vorhanden) */
