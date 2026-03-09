@@ -115,7 +115,6 @@ Error generating stack: `+l.message+`
   align-items: center;
   justify-content: center;
   min-height: 560px;
-  overflow: hidden;
 }
 
 @media (max-width: 900px){

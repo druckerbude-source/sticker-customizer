@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \" import sys content = sys.stdin.read\\(\\) # Find relevant classes import re # Make it more readable by adding newlines after {, }, ; # Search for specific classes classes = [''scFreeformBox'', ''scPreviewFrame'', ''scRight'', ''scLeft'', ''scSurface'', ''scImg'', ''sticker-embed-modal'', ''scWrap'', ''overflow''] for c in classes: idx = content.find\\(c\\) while idx != -1: # Show context around it start = max\\(0, idx - 20\\) end = min\\(len\\(content\\), idx + 200\\) print\\(f''--- Found \"\"{c}\"\" at pos {idx} ---''\\) print\\(content[start:end]\\) print\\(\\) idx = content.find\\(c, idx + 1\\) \")",
+      "Bash(python3 -c \":*)",
+      "Bash(node -e \":*)",
+      "Bash(npm run build)"
+    ]
+  }
+}
