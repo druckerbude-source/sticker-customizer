@@ -3646,10 +3646,13 @@ const SC_CSS = `
   max-height: 100%;
 }
 
-/* Freeform box — 88% of frame (same scale as fixed shapes use for .scSurface) */
+/* Freeform box — 70% of frame so the sticker sits centred with visible breathing room,
+   matching the visual weight of reference die-cut editors (StickerApp.de style).
+   Fixed shapes use 88% because their hard rectangular/circular border provides visual
+   containment; freeform organic edges need ~15% margin on every side to read cleanly. */
 .scFreeformBox{
-  width: calc(var(--scFrameW, 520px) * 0.88);
-  height: calc(var(--scFrameH, 520px) * 0.88);
+  width: calc(var(--scFrameW, 520px) * 0.70);
+  height: calc(var(--scFrameH, 520px) * 0.70);
   max-width: 100%;
   max-height: 100%;
   display:inline-flex;

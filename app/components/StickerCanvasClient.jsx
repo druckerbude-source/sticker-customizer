@@ -2841,8 +2841,13 @@ export default function StickerCanvasClient({
     };
   }, [previewDims.w, previewDims.h]);
 
+  // Freeform shapes have organic, irregular edges that need more visual breathing room
+  // than fixed shapes.  Fixed shapes already have a hard border that acts as visual
+  // containment (PREVIEW_SURFACE_SCALE = 0.88).  Freeform uses 0.70 so the sticker
+  // sits centred with ~15 % margin on every side, matching reference die-cut editors.
+  const FREEFORM_PREVIEW_SCALE = 0.70;
   const freeformContainerStyle = useMemo(() => {
-    const s = clampNum(PREVIEW_SURFACE_SCALE, 0.6, 0.98);
+    const s = clampNum(FREEFORM_PREVIEW_SCALE, 0.4, 0.95);
     return {
       position: "relative",
       display: "inline-flex",
