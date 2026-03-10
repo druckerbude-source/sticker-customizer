@@ -2842,14 +2842,15 @@ export default function StickerCanvasClient({
   }, [previewDims.w, previewDims.h]);
 
   const freeformContainerStyle = useMemo(() => {
+    const s = clampNum(PREVIEW_SURFACE_SCALE, 0.6, 0.98);
     return {
       position: "relative",
       display: "inline-flex",
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
-      width: `${previewDims.w}px`,
-      height: `${previewDims.h}px`,
+      width: `${Math.max(1, Math.round(previewDims.w * s))}px`,
+      height: `${Math.max(1, Math.round(previewDims.h * s))}px`,
       maxWidth: "100%",
       maxHeight: "100%",
       background: "transparent",

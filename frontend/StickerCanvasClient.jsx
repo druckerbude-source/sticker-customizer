@@ -3646,10 +3646,10 @@ const SC_CSS = `
   max-height: 100%;
 }
 
-/* Freeform box */
+/* Freeform box — 88% of frame (same scale as fixed shapes use for .scSurface) */
 .scFreeformBox{
-  width: var(--scFrameW, 520px);
-  height: var(--scFrameH, 520px);
+  width: calc(var(--scFrameW, 520px) * 0.88);
+  height: calc(var(--scFrameH, 520px) * 0.88);
   max-width: 100%;
   max-height: 100%;
   display:inline-flex;
