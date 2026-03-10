@@ -2129,7 +2129,9 @@ export default function StickerCanvasClient({
     }
 
     const b = Number(freeformBorderMm || 0).toFixed(2);
-    const key = `${srcUrl}|${shape}|${bgMode}|${bgColorEff}|${b}`;
+    const wk = Number(effWcm || 0).toFixed(2);
+    const hk = Number(effHcm || 0).toFixed(2);
+    const key = `${srcUrl}|${shape}|${bgMode}|${bgColorEff}|${b}|${wk}|${hk}`;
     if (key === lastServerPreviewKeyRef.current) return;
 
     if (serverPreviewDebounceRef.current) clearTimeout(serverPreviewDebounceRef.current);
@@ -2155,6 +2157,8 @@ export default function StickerCanvasClient({
               bgMode,
               bgColor: bgColorEff,
               freeformBorderMm,
+              widthCm: Number(effWcm) || 0,
+              heightCm: Number(effHcm) || 0,
               maxPx: 700,
               sealGapsPx: FREEFORM_SEAL_GAPS_PX,
             }),
@@ -2183,7 +2187,7 @@ export default function StickerCanvasClient({
         }
       })();
     }, 250);
-  }, [imageUrl, shape, bgMode, bgColorEff, freeformBorderMm]);
+  }, [imageUrl, shape, bgMode, bgColorEff, freeformBorderMm, effWcm, effHcm]);
 
   const normalizedDisplayImageUrl = useMemo(() => normalizeUrl(imageUrl), [imageUrl]);
 

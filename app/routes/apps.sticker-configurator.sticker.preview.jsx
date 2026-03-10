@@ -380,8 +380,8 @@ async function getMasterForImageUrl(resolvedImageUrl, request) {
   const ih = img.height || 1;
   const imgAspect = ih > 0 ? iw / ih : 1;
 
-  // leicht reduziert (weniger Pixel = weniger Arbeit)
-  const padPx = 140;
+  // ✅ Erhöht auf 200: mehr Puffer für den Freeform-Rand (border dilation braucht Platz)
+  const padPx = 200;
 
   const inner = getMasterRectFromAspect(imgAspect);
   const innerW = inner.w;
@@ -450,7 +450,10 @@ function renderFreeformPreview({ master, outW, outH, bgMode, bgColor, borderPx }
 
   const bb = backing.bb;
 
-  const M = 3;
+  // ✅ Dynamischer Margin: mindestens 20 Maskenpixel, mindestens 60% der Borderdilation.
+  // Stellt sicher, dass der erzeugte Rand im PNG mit ausreichend transparentem Puffer
+  // rundherum erscheint (nicht am PNG-Rand abgeschnitten wird).
+  const M = Math.max(20, Math.round(borderInMaskPx * 0.6));
   const minX = Math.max(0, bb.minX - M);
   const minY = Math.max(0, bb.minY - M);
   const maxX = Math.min(mw - 1, bb.maxX + M);
