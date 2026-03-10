@@ -3105,7 +3105,7 @@ export default function StickerCanvasClient({
     return (
       <div className="scPreviewFrame" style={frameVars}>
         {shape === "freeform" ? (
-          <div className="scFreeformBox">
+          <div className={`scFreeformBox${shouldShowCutline ? "" : " scFreeformBox--shadow"}`}>
             {freeformReady && showTransparentMark ? (
               <div className="scTransparentMask" style={freeformMaskStyle || undefined} />
             ) : null}
@@ -3649,7 +3649,8 @@ const SC_CSS = `
 /* Freeform box — 70% of frame so the sticker sits centred with visible breathing room,
    matching the visual weight of reference die-cut editors (StickerApp.de style).
    Fixed shapes use 88% because their hard rectangular/circular border provides visual
-   containment; freeform organic edges need ~15% margin on every side to read cleanly. */
+   containment; freeform organic edges need ~15% margin on every side to read cleanly.
+   overflow:visible so a sub-pixel AR rounding never clips the image edge. */
 .scFreeformBox{
   width: calc(var(--scFrameW, 520px) * 0.70);
   height: calc(var(--scFrameH, 520px) * 0.70);
@@ -3658,9 +3659,21 @@ const SC_CSS = `
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  overflow:hidden;
+  overflow:visible;
   position: relative;
   background: transparent;
+}
+
+/* Soft drop-shadow when NOT in cutline-preview mode.
+   Applied on the box (not the img) so it follows the composited alpha of the
+   server-rendered PNG — on transparent-BG stickers it traces the organic cut shape;
+   on colour-BG stickers it wraps the rectangular sticker card.
+   The shadow makes the sticker visually "float" on the dark panel background,
+   matching the depth cue that the light-grey canvas provides in Image 2. */
+.scFreeformBox--shadow{
+  filter:
+    drop-shadow(0 6px 28px rgba(0,0,0,0.55))
+    drop-shadow(0 2px 8px  rgba(0,0,0,0.35));
 }
 
 /* Checkerboard pattern (nur relevant, wenn Transparent aktiviert wird) */
