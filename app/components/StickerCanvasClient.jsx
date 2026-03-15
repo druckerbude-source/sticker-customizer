@@ -1174,7 +1174,7 @@ function renderFreeformStickerCanvasFromMaster({
   const bb = maskBBox(backingMask, master.mw, master.mh);
 
   // knapp auf Stickerfläche zuschneiden
-  const M = 3;
+  const M = Math.max(3, borderInMaskPx + 2);
   const minX = Math.max(0, bb.minX - M);
   const minY = Math.max(0, bb.minY - M);
   const maxX = Math.min(master.mw - 1, bb.maxX + M);
@@ -1280,7 +1280,7 @@ function renderFreeformMaskDataUrlFromMasterMask({ master, outWpx, outHpx, borde
   const { backingMask, backingC } = cached;
   const bb = maskBBox(backingMask, master.mw, master.mh);
 
-  const M = 3;
+  const M = Math.max(3, borderInMaskPx + 2);
   const minX = Math.max(0, bb.minX - M);
   const minY = Math.max(0, bb.minY - M);
   const maxX = Math.min(master.mw - 1, bb.maxX + M);
