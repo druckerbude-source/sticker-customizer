@@ -2273,7 +2273,7 @@ export default function StickerCanvasClient({
       position: "relative",
       width: "100%",
       height: "100%",
-      objectFit: "cover",
+      objectFit: "contain",
       display: "block",
       zIndex: 2,
       userSelect: "none",
@@ -2544,6 +2544,8 @@ export default function StickerCanvasClient({
             padding: "26px 18px 22px",
             background:
               "linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01))",
+            maxHeight: "100vh",
+            overflowY: "auto",
           }}
         >
           <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 20 }}>Sticker konfigurieren</div>
@@ -3185,7 +3187,7 @@ export default function StickerCanvasClient({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            overflow: "hidden",
+            overflow: "visible",
             padding: 24,
           }}
         >
