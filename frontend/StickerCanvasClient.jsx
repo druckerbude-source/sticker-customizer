@@ -3109,7 +3109,10 @@ export default function StickerCanvasClient({
     return (
       <div className="scPreviewFrame" style={frameVars}>
         {shape === "freeform" ? (
-          <div className={`scFreeformBox${shouldShowCutline ? "" : " scFreeformBox--shadow"}`}>
+  <div
+    className={`scFreeformBox${shouldShowCutline ? "" : " scFreeformBox--shadow"}`}
+    style={{ "--scFreeformScale": 0.82 }}
+  >
             {freeformReady && showTransparentMark ? (
               <div className="scTransparentMask" style={freeformMaskStyle || undefined} />
             ) : null}
@@ -3659,8 +3662,10 @@ const SC_CSS = `
    containment; freeform organic edges need ~15% margin on every side to read cleanly.
    overflow:visible so a sub-pixel AR rounding never clips the image edge. */
 .scFreeformBox{
-  width: calc(var(--scFrameW, 520px) * 0.70);
-  height: calc(var(--scFrameH, 520px) * 0.70);
+  --scFreeformScale: 1;
+
+  width: calc(var(--scFrameW, 520px) * 0.70 * var(--scFreeformScale));
+  height: calc(var(--scFrameH, 520px) * 0.70 * var(--scFreeformScale));
   max-width: 100%;
   max-height: 100%;
   display:inline-flex;
