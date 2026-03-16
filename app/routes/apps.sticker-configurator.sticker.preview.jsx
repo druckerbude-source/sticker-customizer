@@ -268,13 +268,11 @@ function buildInsideMaskFromAlpha(imgData, w, h, alphaThreshold = 8) {
   return inside;
 }
 
-// ✅ Performance: extrem schnelle Dilation (O(w*h)) via separable Box-Filter mit Prefix-Sums.
-// Für Preview ist das üblicherweise ausreichend (minimal “eckiger” als Kreis-Dilation).
+// Schnelle Dilation via separable Box-Filter
 function dilateMaskBox(mask, w, h, radiusPx) {
   const r = Math.max(0, Math.round(radiusPx || 0));
   if (r <= 0) return mask;
 
-  // 1) horizontal
   const tmp = new Uint8Array(w * h);
   const ps = new Int32Array(w + 1);
 
@@ -291,7 +289,6 @@ function dilateMaskBox(mask, w, h, radiusPx) {
     }
   }
 
-  // 2) vertical
   const out = new Uint8Array(w * h);
   const psY = new Int32Array(h + 1);
 
@@ -380,8 +377,9 @@ async function getMasterForImageUrl(resolvedImageUrl, request) {
   const ih = img.height || 1;
   const imgAspect = ih > 0 ? iw / ih : 1;
 
-  // ✅ Erhöht auf 200: mehr Puffer für den Freeform-Rand (border dilation braucht Platz)
-  const padPx = 200;
+  // Größerer Sicherheits-Puffer rund um das Motiv.
+  // Dadurch kann Dilation + Safe-Margin später praktisch nie am Master-Rand enden.
+  const padPx = 320;
 
   const inner = getMasterRectFromAspect(imgAspect);
   const innerW = inner.w;
@@ -403,7 +401,6 @@ async function getMasterForImageUrl(resolvedImageUrl, request) {
   mctx.imageSmoothingEnabled = true;
   mctx.drawImage(img, dx, dy, dw, dh);
 
-  // ✅ etwas kleiner => deutlich schneller, reicht für Preview
   const maxMaskDim = 650;
   const s = Math.min(1, maxMaskDim / Math.max(masterW, masterH));
   const mw = Math.max(1, Math.round(masterW * s));
@@ -422,7 +419,28 @@ async function getMasterForImageUrl(resolvedImageUrl, request) {
   return master;
 }
 
-function renderFreeformPreview({ master, outW, outH, bgMode, bgColor, borderPx }) {
+/**
+ * Neue Strategie:
+ * - niemals mehr ein kleineres, gecropptes Output-Canvas erzeugen
+ * - immer festes outW x outH zurückgeben
+ * - Bounding-Box nur als QUELLAUSSCHNITT verwenden
+ * - Motiv inkl. Border per "contain" mit Sicherheitspadding in das Output-Canvas einpassen
+ *
+ * Ergebnis:
+ * - kein Cropping mehr in der generierten PNG-Datei
+ * - immer gleiche, stabile Preview-Dimensionen
+ * - das Frontend muss nicht raten oder nachskalieren
+ */
+function renderFreeformPreview({
+  master,
+  outW,
+  outH,
+  bgMode,
+  bgColor,
+  borderPx,
+  fitPaddingRatio = 0.08,
+  minFitPaddingPx = 24,
+}) {
   const mw = master.mw;
   const mh = master.mh;
 
@@ -435,7 +453,6 @@ function renderFreeformPreview({ master, outW, outH, bgMode, bgColor, borderPx }
   let backing = master.backing.get(key);
 
   if (!backing) {
-    // ✅ statt exakter Kreis-Dilation -> superschnelle Box-Dilation
     const backingMask = dilateMaskBox(master.insideMask, mw, mh, borderInMaskPx);
     const bb = maskBBox(backingMask, mw, mh);
     const alphaCanvas = maskToAlphaCanvas(backingMask, mw, mh);
@@ -450,54 +467,124 @@ function renderFreeformPreview({ master, outW, outH, bgMode, bgColor, borderPx }
 
   const bb = backing.bb;
 
-  // ✅ Dynamischer Margin: mindestens 20 Maskenpixel, mindestens 60% der Borderdilation.
-  // Stellt sicher, dass der erzeugte Rand im PNG mit ausreichend transparentem Puffer
-  // rundherum erscheint (nicht am PNG-Rand abgeschnitten wird).
-  const M = Math.max(20, Math.round(borderInMaskPx * 0.6));
-  const minX = Math.max(0, bb.minX - M);
-  const minY = Math.max(0, bb.minY - M);
-  const maxX = Math.min(mw - 1, bb.maxX + M);
-  const maxY = Math.min(mh - 1, bb.maxY + M);
+  // Sicherheits-Margin um die Backing-Maske.
+  // Deutlich großzügiger als vorher, damit Ausläufer nie hart am Quellrand liegen.
+  const safeMaskMargin = Math.max(32, Math.round(borderInMaskPx * 1.75));
 
-  const sx = outW / Math.max(1, mw);
-  const sy = outH / Math.max(1, mh);
+  const srcX = Math.max(0, bb.minX - safeMaskMargin);
+  const srcY = Math.max(0, bb.minY - safeMaskMargin);
+  const srcMaxX = Math.min(mw - 1, bb.maxX + safeMaskMargin);
+  const srcMaxY = Math.min(mh - 1, bb.maxY + safeMaskMargin);
 
-  const cropW = Math.max(1, Math.round((maxX - minX + 1) * sx));
-  const cropH = Math.max(1, Math.round((maxY - minY + 1) * sy));
+  const srcWMask = Math.max(1, srcMaxX - srcX + 1);
+  const srcHMask = Math.max(1, srcMaxY - srcY + 1);
 
-  const outCanvas = createCanvas(cropW, cropH);
+  // Festes Output-Canvas -> Motiv wird mit "contain" hineingepasst
+  const outCanvas = createCanvas(outW, outH);
   const octx = outCanvas.getContext("2d");
-
-  const offX = -minX * sx;
-  const offY = -minY * sy;
 
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
-  octx.clearRect(0, 0, cropW, cropH);
+  octx.clearRect(0, 0, outW, outH);
+
+  const padX = Math.min(Math.floor(outW / 3), Math.max(minFitPaddingPx, Math.round(outW * fitPaddingRatio)));
+  const padY = Math.min(Math.floor(outH / 3), Math.max(minFitPaddingPx, Math.round(outH * fitPaddingRatio)));
+
+  const availW = Math.max(1, outW - padX * 2);
+  const availH = Math.max(1, outH - padY * 2);
+
+  const containScale = Math.min(availW / srcWMask, availH / srcHMask);
+
+  const destW = Math.max(1, Math.round(srcWMask * containScale));
+  const destH = Math.max(1, Math.round(srcHMask * containScale));
+  const destX = Math.round((outW - destW) / 2);
+  const destY = Math.round((outH - destH) / 2);
+
+  const masterScaleX = master.masterW / Math.max(1, mw);
+  const masterScaleY = master.masterH / Math.max(1, mh);
+
+  const imgSrcX = srcX * masterScaleX;
+  const imgSrcY = srcY * masterScaleY;
+  const imgSrcW = srcWMask * masterScaleX;
+  const imgSrcH = srcHMask * masterScaleY;
 
   if (bg.hasFill) {
-    // 1) mask -> 2) fill background INSIDE mask -> 3) draw image -> 4) clip to mask
+    // 1) Alpha der Freeform-Form in Zielbereich zeichnen
     octx.globalCompositeOperation = "source-over";
-    octx.drawImage(backing.alphaCanvas, 0, 0, mw, mh, offX, offY, outW, outH);
+    octx.drawImage(
+      backing.alphaCanvas,
+      srcX,
+      srcY,
+      srcWMask,
+      srcHMask,
+      destX,
+      destY,
+      destW,
+      destH
+    );
 
+    // 2) Hintergrund nur INSIDE dieser Form füllen
     octx.globalCompositeOperation = "source-in";
     octx.fillStyle = bg.raw;
-    octx.fillRect(0, 0, cropW, cropH);
+    octx.fillRect(destX, destY, destW, destH);
 
+    // 3) Bild darüber zeichnen
     octx.globalCompositeOperation = "source-over";
-    octx.drawImage(master.masterCanvas, 0, 0, master.masterW, master.masterH, offX, offY, outW, outH);
+    octx.drawImage(
+      master.masterCanvas,
+      imgSrcX,
+      imgSrcY,
+      imgSrcW,
+      imgSrcH,
+      destX,
+      destY,
+      destW,
+      destH
+    );
 
+    // 4) Erneut auf die Form clippen
     octx.globalCompositeOperation = "destination-in";
-    octx.drawImage(backing.alphaCanvas, 0, 0, mw, mh, offX, offY, outW, outH);
+    octx.drawImage(
+      backing.alphaCanvas,
+      srcX,
+      srcY,
+      srcWMask,
+      srcHMask,
+      destX,
+      destY,
+      destW,
+      destH
+    );
   } else {
-    // ✅ transparent export/preview: draw image first, then clip => prevents black backing
+    // Transparenter Hintergrund
     octx.globalCompositeOperation = "source-over";
-    octx.drawImage(master.masterCanvas, 0, 0, master.masterW, master.masterH, offX, offY, outW, outH);
+    octx.drawImage(
+      master.masterCanvas,
+      imgSrcX,
+      imgSrcY,
+      imgSrcW,
+      imgSrcH,
+      destX,
+      destY,
+      destW,
+      destH
+    );
 
     octx.globalCompositeOperation = "destination-in";
-    octx.drawImage(backing.alphaCanvas, 0, 0, mw, mh, offX, offY, outW, outH);
+    octx.drawImage(
+      backing.alphaCanvas,
+      srcX,
+      srcY,
+      srcWMask,
+      srcHMask,
+      destX,
+      destY,
+      destW,
+      destH
+    );
   }
 
+  octx.globalCompositeOperation = "source-over";
   return outCanvas;
 }
 
@@ -506,12 +593,14 @@ async function ensureDir(p) {
     await fs.mkdir(p, { recursive: true });
   } catch {}
 }
+
 function sha1(str) {
   return crypto.createHash("sha1").update(str).digest("hex");
 }
 
 function buildPreviewKey({ imageUrl, shape, widthCm, heightCm, bgMode, bgColor, borderMm, maxPx }) {
-  return sha1(JSON.stringify({ v: 7, imageUrl, shape, widthCm, heightCm, bgMode, bgColor, borderMm, maxPx }));
+  // Version erhöht, damit alte gecroppte Preview-Dateien nicht weiter aus dem Cache kommen
+  return sha1(JSON.stringify({ v: 8, imageUrl, shape, widthCm, heightCm, bgMode, bgColor, borderMm, maxPx }));
 }
 
 function isAppProxyRequest(request) {
@@ -591,7 +680,10 @@ export async function action({ request }) {
     try {
       await fs.access(diskPath);
       const previewUrl = `/apps/sticker-configurator/uploads/sticker-configurator/previews/${filename}`;
-      return json({ ok: true, previewUrl, widthCm, heightCm }, { headers: { "Cache-Control": "private, max-age=60" } });
+      return json(
+        { ok: true, previewUrl, widthCm, heightCm },
+        { headers: { "Cache-Control": "private, max-age=60" } }
+      );
     } catch {}
 
     const master = await getMasterForImageUrl(resolvedImageUrl, request);
@@ -605,7 +697,15 @@ export async function action({ request }) {
     const outH = Math.max(1, Math.round(rawH * kk));
     const borderPx = Math.max(1, Math.round(mmToPx(borderMm) * kk));
 
-    const outCanvas = renderFreeformPreview({ master, outW, outH, bgMode, bgColor, borderPx });
+    const outCanvas = renderFreeformPreview({
+      master,
+      outW,
+      outH,
+      bgMode,
+      bgColor,
+      borderPx,
+    });
+
     const png = outCanvas.toBuffer("image/png");
 
     const tmp = `${diskPath}.${process.pid}.${Date.now()}.tmp`;
@@ -615,7 +715,10 @@ export async function action({ request }) {
     });
 
     const previewUrl = `/apps/sticker-configurator/uploads/sticker-configurator/previews/${filename}`;
-    return json({ ok: true, previewUrl, width: outCanvas.width, height: outCanvas.height }, { headers: { "Cache-Control": "private, max-age=60" } });
+    return json(
+      { ok: true, previewUrl, width: outCanvas.width, height: outCanvas.height },
+      { headers: { "Cache-Control": "private, max-age=60" } }
+    );
   } catch (e) {
     console.error("[PREVIEW ACTION ERROR]", e);
     // FAIL-OPEN: Frontend soll dann auf Client-Preview zurückfallen
