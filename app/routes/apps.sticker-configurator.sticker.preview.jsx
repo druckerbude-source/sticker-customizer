@@ -19,7 +19,7 @@ export async function loader() {
   return json({
     ok: true,
     route: "/apps/sticker-configurator/sticker/preview",
-    hint: "POST JSON { imageUrl, shape, widthCm, heightCm, bgColor, freeformBorderMm, maxPx }",
+    hint: "POST JSON { imageUrl, shape, widthCm, heightCm, designWidthCm, designHeightCm, bgColor, freeformBorderMm, maxPx }",
   });
 }
 
@@ -206,6 +206,7 @@ function buildInsideMaskFromAlpha(imgData, w, h, alphaThreshold = 8) {
     qy[qe] = y;
     qe++;
   };
+
   const trySeed = (x, y) => {
     const idx = y * w + x;
     if (isTransparent[idx] && !outside[idx]) {
@@ -228,10 +229,10 @@ function buildInsideMaskFromAlpha(imgData, w, h, alphaThreshold = 8) {
     const y = qy[qs];
     qs++;
 
-    const nx1 = x + 1,
-      nx2 = x - 1,
-      ny1 = y + 1,
-      ny2 = y - 1;
+    const nx1 = x + 1;
+    const nx2 = x - 1;
+    const ny1 = y + 1;
+    const ny2 = y - 1;
 
     if (nx1 < w) {
       const i = y * w + nx1;
@@ -279,7 +280,9 @@ function dilateMaskBox(mask, w, h, radiusPx) {
   for (let y = 0; y < h; y++) {
     const row = y * w;
     ps[0] = 0;
-    for (let x = 0; x < w; x++) ps[x + 1] = ps[x] + (mask[row + x] ? 1 : 0);
+    for (let x = 0; x < w; x++) {
+      ps[x + 1] = ps[x] + (mask[row + x] ? 1 : 0);
+    }
 
     for (let x = 0; x < w; x++) {
       const L = Math.max(0, x - r);
@@ -294,7 +297,9 @@ function dilateMaskBox(mask, w, h, radiusPx) {
 
   for (let x = 0; x < w; x++) {
     psY[0] = 0;
-    for (let y = 0; y < h; y++) psY[y + 1] = psY[y] + (tmp[y * w + x] ? 1 : 0);
+    for (let y = 0; y < h; y++) {
+      psY[y + 1] = psY[y] + (tmp[y * w + x] ? 1 : 0);
+    }
 
     for (let y = 0; y < h; y++) {
       const T = Math.max(0, y - r);
@@ -312,7 +317,11 @@ function maskToAlphaCanvas(mask, w, h) {
   const ctx = c.getContext("2d");
   const img = ctx.createImageData(w, h);
   const d = img.data;
-  for (let i = 0; i < w * h; i++) d[i * 4 + 3] = mask[i] ? 255 : 0;
+
+  for (let i = 0; i < w * h; i++) {
+    d[i * 4 + 3] = mask[i] ? 255 : 0;
+  }
+
   ctx.putImageData(img, 0, 0);
   return c;
 }
@@ -325,6 +334,7 @@ class LruTtl {
     this.ttlMs = ttlMs;
     this.map = new Map();
   }
+
   get(key) {
     const v = this.map.get(key);
     if (!v) return null;
@@ -336,6 +346,7 @@ class LruTtl {
     this.map.set(key, v);
     return v.v;
   }
+
   set(key, value) {
     this.map.set(key, { v: value, t: Date.now() });
     if (this.map.size > this.max) {
@@ -358,8 +369,7 @@ async function getMasterForImageUrl(resolvedImageUrl, request) {
   const ih = img.height || 1;
   const imgAspect = ih > 0 ? iw / ih : 1;
 
-  // Großer Sicherheits-Puffer rund um das Motiv,
-  // damit bei Freeform + Border niemals am Master-Rand gearbeitet wird.
+  // großer Sicherheits-Puffer, damit Form + Rand nie am Master-Rand liegen
   const padPx = 320;
 
   const inner = getMasterRectFromAspect(imgAspect);
@@ -412,13 +422,10 @@ async function getMasterForImageUrl(resolvedImageUrl, request) {
 }
 
 /**
- * Cropping-sichere Freeform-Preview:
- * - niemals Bounding-Box-Crop als Quellausschnitt
- * - immer komplette Master-Fläche verwenden
- * - immer festes outW x outH zurückgeben
- * - Motiv mit "contain" + Sicherheits-Padding einpassen
+ * Rendert die eigentliche Freeform in ihrer DESIGNGRÖSSE.
+ * Kein Billing-Box-Compose hier.
  */
-function renderFreeformPreview({
+function renderFreeformStickerCanvas({
   master,
   outW,
   outH,
@@ -433,7 +440,6 @@ function renderFreeformPreview({
 
   const bg = normalizeBgInput(bgMode, bgColor);
 
-  // Konservativere Border-Umrechnung, damit Hoch-/Querformat sauber bleiben
   const pxPerMaskX = outW / Math.max(1, mw);
   const pxPerMaskY = outH / Math.max(1, mh);
   const pxPerMask = Math.min(pxPerMaskX, pxPerMaskY);
@@ -465,7 +471,6 @@ function renderFreeformPreview({
   octx.imageSmoothingQuality = "high";
   octx.clearRect(0, 0, outW, outH);
 
-  // Komplettes Master in Zielgröße "contain" einpassen
   const padX = Math.min(
     Math.floor(outW / 3),
     Math.max(minFitPaddingPx, Math.round(outW * fitPaddingRatio))
@@ -486,26 +491,13 @@ function renderFreeformPreview({
   const destY = Math.round((outH - destH) / 2);
 
   if (bg.hasFill) {
-    // 1) komplette Formmaske zeichnen
     octx.globalCompositeOperation = "source-over";
-    octx.drawImage(
-      backing.alphaCanvas,
-      0,
-      0,
-      mw,
-      mh,
-      destX,
-      destY,
-      destW,
-      destH
-    );
+    octx.drawImage(backing.alphaCanvas, 0, 0, mw, mh, destX, destY, destW, destH);
 
-    // 2) Hintergrund nur innerhalb der Form
     octx.globalCompositeOperation = "source-in";
     octx.fillStyle = bg.raw;
     octx.fillRect(destX, destY, destW, destH);
 
-    // 3) komplettes Bild darüber
     octx.globalCompositeOperation = "source-over";
     octx.drawImage(
       master.masterCanvas,
@@ -519,19 +511,8 @@ function renderFreeformPreview({
       destH
     );
 
-    // 4) erneut auf Form clippen
     octx.globalCompositeOperation = "destination-in";
-    octx.drawImage(
-      backing.alphaCanvas,
-      0,
-      0,
-      mw,
-      mh,
-      destX,
-      destY,
-      destW,
-      destH
-    );
+    octx.drawImage(backing.alphaCanvas, 0, 0, mw, mh, destX, destY, destW, destH);
   } else {
     octx.globalCompositeOperation = "source-over";
     octx.drawImage(
@@ -547,21 +528,40 @@ function renderFreeformPreview({
     );
 
     octx.globalCompositeOperation = "destination-in";
-    octx.drawImage(
-      backing.alphaCanvas,
-      0,
-      0,
-      mw,
-      mh,
-      destX,
-      destY,
-      destW,
-      destH
-    );
+    octx.drawImage(backing.alphaCanvas, 0, 0, mw, mh, destX, destY, destW, destH);
   }
 
   octx.globalCompositeOperation = "source-over";
   return outCanvas;
+}
+
+/**
+ * Setzt den bereits korrekt gerenderten Sticker mittig in die Billing-/Bounding-Box.
+ * Das entspricht der 2-stufigen Client-Logik.
+ */
+function composeStickerIntoBillingBox({ stickerCanvas, boxWpx, boxHpx }) {
+  const bw = Math.max(1, Math.round(boxWpx));
+  const bh = Math.max(1, Math.round(boxHpx));
+
+  const out = createCanvas(bw, bh);
+  const ctx = out.getContext("2d");
+
+  ctx.clearRect(0, 0, bw, bh);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  const sw = stickerCanvas?.width || 1;
+  const sh = stickerCanvas?.height || 1;
+
+  const scale = Math.min(bw / sw, bh / sh);
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
+
+  const dx = Math.round((bw - dw) / 2);
+  const dy = Math.round((bh - dh) / 2);
+
+  ctx.drawImage(stickerCanvas, dx, dy, dw, dh);
+  return out;
 }
 
 async function ensureDir(p) {
@@ -574,9 +574,33 @@ function sha1(str) {
   return crypto.createHash("sha1").update(str).digest("hex");
 }
 
-function buildPreviewKey({ imageUrl, shape, widthCm, heightCm, bgMode, bgColor, borderMm, maxPx }) {
-  // Version erhöht, damit alte Preview-Dateien sicher nicht wiederverwendet werden
-  return sha1(JSON.stringify({ v: 9, imageUrl, shape, widthCm, heightCm, bgMode, bgColor, borderMm, maxPx }));
+function buildPreviewKey({
+  imageUrl,
+  shape,
+  widthCm,
+  heightCm,
+  designWidthCm,
+  designHeightCm,
+  bgMode,
+  bgColor,
+  borderMm,
+  maxPx,
+}) {
+  return sha1(
+    JSON.stringify({
+      v: 10,
+      imageUrl,
+      shape,
+      widthCm,
+      heightCm,
+      designWidthCm,
+      designHeightCm,
+      bgMode,
+      bgColor,
+      borderMm,
+      maxPx,
+    })
+  );
 }
 
 function isAppProxyRequest(request) {
@@ -598,12 +622,11 @@ async function softAuth(request) {
     return;
   }
 
-  // Dev/Local allow (kein Throw)
+  // Dev/Local allow
 }
 
 export async function action({ request }) {
   try {
-    // Auth: fail-open (Preview darf UI nicht killen)
     try {
       await softAuth(request);
     } catch (e) {
@@ -631,8 +654,15 @@ export async function action({ request }) {
     const bgMode = String(body?.bgMode || "color");
     const bgColor = String(body?.bgColor || "#ffffff");
     const borderMm = clampNum(body?.freeformBorderMm ?? body?.borderMm ?? 3, 0, 10);
-    const widthCm = clampNum(body?.widthCm ?? body?.baseWcm ?? 4, 1, 300);
-    const heightCm = clampNum(body?.heightCm ?? body?.baseHcm ?? 4, 1, 300);
+
+    // Billing-/Bounding-Box
+    const boxWidthCm = clampNum(body?.widthCm ?? body?.baseWcm ?? 4, 1, 300);
+    const boxHeightCm = clampNum(body?.heightCm ?? body?.baseHcm ?? 4, 1, 300);
+
+    // Tatsächliche Sticker-Designgröße
+    const designWidthCm = clampNum(body?.designWidthCm ?? boxWidthCm, 1, 300);
+    const designHeightCm = clampNum(body?.designHeightCm ?? boxHeightCm, 1, 300);
+
     const maxPx = clampNum(body?.maxPx ?? body?.outMaxSide ?? DEFAULT_MAX_PX, 600, 2000);
 
     const baseUrlStr = baseFromRequest(request);
@@ -641,8 +671,10 @@ export async function action({ request }) {
     const key = buildPreviewKey({
       imageUrl: resolvedImageUrl,
       shape,
-      widthCm,
-      heightCm,
+      widthCm: boxWidthCm,
+      heightCm: boxHeightCm,
+      designWidthCm,
+      designHeightCm,
       bgMode,
       bgColor,
       borderMm,
@@ -653,34 +685,56 @@ export async function action({ request }) {
     await ensureDir(PREVIEW_DIR);
     const diskPath = path.join(PREVIEW_DIR, filename);
 
-    // Disk cache hit
     try {
       await fs.access(diskPath);
       const previewUrl = `/apps/sticker-configurator/uploads/sticker-configurator/previews/${filename}`;
       return json(
-        { ok: true, previewUrl, widthCm, heightCm },
+        {
+          ok: true,
+          previewUrl,
+          widthCm: boxWidthCm,
+          heightCm: boxHeightCm,
+          designWidthCm,
+          designHeightCm,
+        },
         { headers: { "Cache-Control": "private, max-age=60" } }
       );
     } catch {}
 
     const master = await getMasterForImageUrl(resolvedImageUrl, request);
 
-    const rawW = Math.max(1, Math.round(widthCm * PX_PER_CM));
-    const rawH = Math.max(1, Math.round(heightCm * PX_PER_CM));
-    const maxSide = Math.max(rawW, rawH);
+    // Boxgröße in Pixeln
+    const rawBoxW = Math.max(1, Math.round(boxWidthCm * PX_PER_CM));
+    const rawBoxH = Math.max(1, Math.round(boxHeightCm * PX_PER_CM));
+
+    // Designgröße in Pixeln
+    const rawDesignW = Math.max(1, Math.round(designWidthCm * PX_PER_CM));
+    const rawDesignH = Math.max(1, Math.round(designHeightCm * PX_PER_CM));
+
+    // EIN gemeinsamer Skalenfaktor, damit Design und Box proportional bleiben
+    const maxSide = Math.max(rawBoxW, rawBoxH, rawDesignW, rawDesignH);
     const kk = maxSide > maxPx ? maxPx / maxSide : 1;
 
-    const outW = Math.max(1, Math.round(rawW * kk));
-    const outH = Math.max(1, Math.round(rawH * kk));
+    const boxOutW = Math.max(1, Math.round(rawBoxW * kk));
+    const boxOutH = Math.max(1, Math.round(rawBoxH * kk));
+    const designOutW = Math.max(1, Math.round(rawDesignW * kk));
+    const designOutH = Math.max(1, Math.round(rawDesignH * kk));
+
     const borderPx = Math.max(1, Math.round(mmToPx(borderMm) * kk));
 
-    const outCanvas = renderFreeformPreview({
+    const stickerCanvas = renderFreeformStickerCanvas({
       master,
-      outW,
-      outH,
+      outW: designOutW,
+      outH: designOutH,
       bgMode,
       bgColor,
       borderPx,
+    });
+
+    const outCanvas = composeStickerIntoBillingBox({
+      stickerCanvas,
+      boxWpx: boxOutW,
+      boxHpx: boxOutH,
     });
 
     const png = outCanvas.toBuffer("image/png");
@@ -693,12 +747,20 @@ export async function action({ request }) {
 
     const previewUrl = `/apps/sticker-configurator/uploads/sticker-configurator/previews/${filename}`;
     return json(
-      { ok: true, previewUrl, width: outCanvas.width, height: outCanvas.height },
+      {
+        ok: true,
+        previewUrl,
+        width: outCanvas.width,
+        height: outCanvas.height,
+        widthCm: boxWidthCm,
+        heightCm: boxHeightCm,
+        designWidthCm,
+        designHeightCm,
+      },
       { headers: { "Cache-Control": "private, max-age=60" } }
     );
   } catch (e) {
     console.error("[PREVIEW ACTION ERROR]", e);
-    // FAIL-OPEN: Frontend soll dann auf Client-Preview zurückfallen
     return json({ ok: true, previewUrl: "", skipped: true, error: e?.message || String(e) }, { status: 200 });
   }
 }

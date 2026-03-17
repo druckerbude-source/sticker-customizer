@@ -2152,16 +2152,23 @@ export default function StickerCanvasClient({
             headers: { "Content-Type": "application/json" },
             signal: ctrl.signal,
             body: JSON.stringify({
-              imageUrl: srcUrl,
-              shape,
-              bgMode,
-              bgColor: bgColorEff,
-              freeformBorderMm,
-              widthCm: Number(effWcm) || 0,
-              heightCm: Number(effHcm) || 0,
-              maxPx: 700,
-              sealGapsPx: FREEFORM_SEAL_GAPS_PX,
-            }),
+            imageUrl: srcUrl,
+            shape,
+            bgMode,
+            bgColor: bgColorEff,
+            freeformBorderMm,
+
+            // Billing-/Bounding-Box
+            widthCm: Number(effWcm) || 0,
+            heightCm: Number(effHcm) || 0,
+
+            // Tatsächliche Sticker-Designgröße
+            designWidthCm: Number(widthCm) || 0,
+            designHeightCm: Number(heightCm) || 0,
+
+            maxPx: 700,
+            sealGapsPx: FREEFORM_SEAL_GAPS_PX,
+          }),
           });
 
           if (!res.ok) {
